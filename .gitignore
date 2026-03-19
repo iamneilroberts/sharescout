@@ -1,0 +1,42 @@
+# Database
+share_scout.db
+share_scout.db-shm
+share_scout.db-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# User config (live copies — examples are committed)
+config.yaml
+scoring_rules.yaml
+project_groups.yaml
+.env
+.env.*
+
+# IDE / tools
+.claude/
+.idea/
+.vscode/
+
+# Session data / personal
+docs/summaries/
+docs/superpowers/
+docs/share_scout_plan.md
+docs/main_dashboard_with_active_crawl.png
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
