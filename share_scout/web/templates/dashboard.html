@@ -1,0 +1,477 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — ShareScout{% endblock %}
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <h1 style="margin: 0;">Dashboard</h1>
+    <div style="display: flex; align-items: center; gap: 1rem;">
+        <label style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem;">
+            <input type="checkbox" id="auto-refresh" {{ 'checked' if is_running or live.active_crawl else '' }}>
+            Auto-refresh
+        </label>
+        <span id="refresh-timer" class="text-muted" style="font-size: 0.8rem; min-width: 60px;"></span>
+        <span id="last-update" class="text-muted" style="font-size: 0.8rem;"></span>
+    </div>
+</div>
+
+{# ── Live Status Banner ── #}
+{% set is_running = crawl_status() == 'running' %}
+<div class="card" style="margin-bottom: 1rem; border-left: 4px solid {{ '#198754' if is_running or live.active_crawl else '#6c757d' }};">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <span style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: {{ '#198754' if is_running or live.active_crawl else 'var(--text-muted)' }};">
+                {{ 'Crawl Running' if is_running else ('Crawl Active (DB)' if live.active_crawl else 'Idle') }}
+            </span>
+            <span style="display: flex; gap: 0.5rem;">
+                {% if not is_running %}
+                <form method="post" action="{{ url_for('crawl_start') }}" style="display: inline;">
+                    <button type="submit" class="btn btn-sm" style="background: #198754;">Start Crawl</button>
+                </form>
+                {% else %}
+                <form method="post" action="{{ url_for('crawl_stop') }}" style="display: inline;">
+                    <button type="submit" class="btn btn-sm" style="background: #dc3545;">Stop Crawl</button>
+                </form>
+                {% endif %}
+                <a href="{{ url_for('crawl_log') }}" class="btn btn-sm" style="background: #6c757d;" target="_blank">View Log</a>
+            </span>
+            {% if live.active_crawl %}
+            <span class="text-muted" style="font-size: 0.8rem;"> — run #{{ live.active_crawl.id }} since {{ live.active_crawl.started_at[:16] }} — {{ "{:,}".format(live.active_crawl.files_found) }} found, {{ "{:,}".format(live.active_crawl.files_analyzed) }} analyzed</span>
+            {% endif %}
+        </div>
+        <span class="text-muted" style="font-size: 0.8rem;">Queue: {{ "{:,}".format(live.queue_depth) }} files awaiting LLM</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 0.75rem;">
+        {% if live.last_processed %}
+        <div>
+            <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.2rem;">Last Processed</div>
+            <div style="font-size: 0.9rem;">
+                <span class="tag">{{ live.last_processed.status }}</span>
+                <strong>{{ live.last_processed.path | project_name }}</strong> / {{ live.last_processed.filename }}
+            </div>
+            <div class="text-muted" style="font-size: 0.8rem;">
+                Score: {{ live.last_processed.relevance_score | round(0) | int if live.last_processed.relevance_score is not none else '—' }}
+                {% if live.last_processed.category %} — {{ live.last_processed.category }}{% endif %}
+                — {{ live.last_processed.updated_at[:19] if live.last_processed.updated_at else '' }}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if live.last_analyzed %}
+        <div>
+            <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.2rem;">Last Analyzed</div>
+            <div style="font-size: 0.9rem;">
+                <strong>{{ live.last_analyzed.path | project_name }}</strong> /
+                <a href="{{ url_for('file_detail', file_id=live.last_analyzed.file_id) }}">{{ live.last_analyzed.filename }}</a>
+            </div>
+            <div class="text-muted" style="font-size: 0.8rem;">
+                {{ live.last_analyzed.category }} — {{ live.last_analyzed.analyzed_at[11:19] if live.last_analyzed.analyzed_at else '' }}
+            </div>
+            {% if live.last_analyzed.summary %}
+            <div class="text-muted" style="font-size: 0.8rem; margin-top: 0.2rem; max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ live.last_analyzed.summary }}</div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if live.next_in_queue %}
+        <div>
+            <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.2rem;">Next in Queue</div>
+            <div style="font-size: 0.9rem;">
+                <strong>{{ live.next_in_queue.path | project_name }}</strong> / {{ live.next_in_queue.filename }}
+            </div>
+            <div class="text-muted" style="font-size: 0.8rem;">
+                Score: {{ live.next_in_queue.relevance_score | round(0) | int }} — {{ live.next_in_queue.extension or '' }}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{# ── Ollama Status ── #}
+<div class="card" style="margin-bottom: 1rem; border-left: 4px solid {{ '#198754' if ollama.reachable and ollama.models else ('#ffc107' if ollama.reachable else '#dc3545') }};">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin-bottom: 0;">Ollama
+            {% if ollama.reachable %}
+                {% if ollama.models %}
+                <span class="score score-high" style="font-size: 0.7rem;">connected</span>
+                {% else %}
+                <span class="score score-medium" style="font-size: 0.7rem;">idle (no model loaded)</span>
+                {% endif %}
+            {% else %}
+            <span class="score score-low" style="font-size: 0.7rem;">unreachable</span>
+            {% endif %}
+        </h3>
+    </div>
+    {% if ollama.error %}
+    <p class="text-muted" style="margin-top: 0.5rem; font-size: 0.85rem;">{{ ollama.error }}</p>
+    {% endif %}
+    {% for m in ollama.models %}
+    <div style="display: flex; gap: 2rem; flex-wrap: wrap; margin-top: 0.5rem; font-size: 0.9rem;">
+        <div><strong>{{ m.name }}</strong></div>
+        <div>{{ m.parameter_size }} · {{ m.quantization }}</div>
+        <div>VRAM: {{ m.vram_gb }} GB ({{ m.gpu_percent }}% GPU)</div>
+        <div>Context: {{ "{:,}".format(m.context_length) }} tokens</div>
+        <div class="text-muted">Expires: {{ m.expires_at }}</div>
+    </div>
+    {% endfor %}
+</div>
+
+{# ── Stats Cards ── #}
+<div class="stats-grid">
+    <a href="{{ url_for('browse') }}" class="stat-card stat-link">
+        <div class="value">{{ "{:,}".format(stats.total_files) }}</div>
+        <div class="label">Total Files</div>
+    </a>
+    <a href="{{ url_for('browse', status='analyzed') }}" class="stat-card stat-link">
+        <div class="value">{{ "{:,}".format(stats.analyzed) }}</div>
+        <div class="label">Analyzed</div>
+    </a>
+    <a href="{{ url_for('browse', status='extracted') }}" class="stat-card stat-link">
+        <div class="value">{{ "{:,}".format(stats.extracted) }}</div>
+        <div class="label">Extracted (awaiting LLM)</div>
+    </a>
+    <a href="{{ url_for('browse', status='skipped') }}" class="stat-card stat-link">
+        <div class="value">{{ "{:,}".format(stats.skipped) }}</div>
+        <div class="label">Skipped</div>
+    </a>
+    <div class="stat-card">
+        <div class="value">{{ stats.total_size_bytes | format_size }}</div>
+        <div class="label">Total Size Indexed</div>
+    </div>
+    {% if stats.latest_crawl %}
+    <div class="stat-card">
+        <div class="value" style="font-size: 1rem;">{{ stats.latest_crawl.started_at[:16] if stats.latest_crawl.started_at else '—' }}</div>
+        <div class="label">Last Crawl ({{ stats.latest_crawl.status }})</div>
+    </div>
+    {% endif %}
+</div>
+
+{# ── Progress Bar ── #}
+{% set processed = stats.analyzed + stats.extracted + stats.skipped %}
+{% if stats.total_files > 0 %}
+<div class="card" style="margin-bottom: 1rem; padding: 0.75rem 1.25rem;">
+    <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.3rem;">
+        <span>Pipeline Progress</span>
+        <span>{{ "{:,}".format(processed) }} / {{ "{:,}".format(stats.total_files) }} files processed</span>
+    </div>
+    <div style="background: #2a2a2a; border-radius: 4px; height: 20px; overflow: hidden; display: flex;">
+        {% set ana_pct = (stats.analyzed / stats.total_files * 100) if stats.total_files > 0 else 0 %}
+        {% set ext_pct = (stats.extracted / stats.total_files * 100) if stats.total_files > 0 else 0 %}
+        {% set skip_pct = (stats.skipped / stats.total_files * 100) if stats.total_files > 0 else 0 %}
+        <div style="width: {{ ana_pct }}%; background: #198754; transition: width 0.5s;" title="Analyzed: {{ stats.analyzed }}"></div>
+        <div style="width: {{ ext_pct }}%; background: #0d6efd; transition: width 0.5s;" title="Extracted: {{ stats.extracted }}"></div>
+        <div style="width: {{ skip_pct }}%; background: #6c757d; transition: width 0.5s;" title="Skipped: {{ stats.skipped }}"></div>
+    </div>
+    <div style="display: flex; gap: 1.5rem; font-size: 0.75rem; margin-top: 0.3rem;">
+        <span><span style="display: inline-block; width: 10px; height: 10px; background: #198754; border-radius: 2px;"></span> Analyzed {{ ana_pct | round(1) }}%</span>
+        <span><span style="display: inline-block; width: 10px; height: 10px; background: #0d6efd; border-radius: 2px;"></span> Extracted {{ ext_pct | round(1) }}%</span>
+        <span><span style="display: inline-block; width: 10px; height: 10px; background: #6c757d; border-radius: 2px;"></span> Skipped {{ skip_pct | round(1) }}%</span>
+    </div>
+</div>
+{% endif %}
+
+{# ── LLM Throughput ── #}
+{% if rate.total_analyses > 0 %}
+<div class="card" style="margin-bottom: 1rem;">
+    <h3>LLM Analysis Throughput</h3>
+    <div class="stats-grid" style="margin-bottom: 0;">
+        <div class="stat-card" style="margin-bottom: 0;">
+            <div class="value" style="font-size: 1.3rem;">{{ rate.per_minute }}</div>
+            <div class="label">Files / minute</div>
+        </div>
+        <div class="stat-card" style="margin-bottom: 0;">
+            <div class="value" style="font-size: 1.3rem;">{{ rate.avg_seconds }}s</div>
+            <div class="label">Avg wall time / file</div>
+        </div>
+        <div class="stat-card" style="margin-bottom: 0;">
+            <div class="value" style="font-size: 1.3rem;">{{ "{:,}".format(rate.total_analyses) }}</div>
+            <div class="label">Total Analyzed</div>
+        </div>
+        {% if rate.remaining_files is defined %}
+        <div class="stat-card" style="margin-bottom: 0;">
+            <div class="value" style="font-size: 1.3rem;">{{ "{:,}".format(rate.remaining_files) }}</div>
+            <div class="label">Remaining (extracted)</div>
+        </div>
+        <div class="stat-card" style="margin-bottom: 0;">
+            <div class="value" style="font-size: 1.3rem;">{{ rate.eta_hours }}h</div>
+            <div class="label">ETA at current rate</div>
+        </div>
+        {% endif %}
+    </div>
+    {% if rate.total_tokens > 0 %}
+    <div class="stats-grid" style="margin-top: 0.75rem; margin-bottom: 0;">
+        <div class="stat-card" style="margin-bottom: 0;">
+            <div class="value" style="font-size: 1.3rem;">{{ "{:,}".format(rate.total_tokens) }}</div>
+            <div class="label">Total Tokens</div>
+        </div>
+        <div class="stat-card" style="margin-bottom: 0;">
+            <div class="value" style="font-size: 1.3rem;">{{ "{:,}".format(rate.total_prompt_tokens) }}</div>
+            <div class="label">Prompt Tokens</div>
+        </div>
+        <div class="stat-card" style="margin-bottom: 0;">
+            <div class="value" style="font-size: 1.3rem;">{{ "{:,}".format(rate.total_eval_tokens) }}</div>
+            <div class="label">Completion Tokens</div>
+        </div>
+        <div class="stat-card" style="margin-bottom: 0;">
+            <div class="value" style="font-size: 1.3rem;">{{ rate.avg_tokens_per_file }}</div>
+            <div class="label">Avg Tokens / file</div>
+        </div>
+        <div class="stat-card" style="margin-bottom: 0;">
+            <div class="value" style="font-size: 1.3rem;">{{ rate.tokens_per_second }}</div>
+            <div class="label">Tokens / sec (eval)</div>
+        </div>
+        {% if rate.avg_llm_ms is defined %}
+        <div class="stat-card" style="margin-bottom: 0;">
+            <div class="value" style="font-size: 1.3rem;">{{ (rate.avg_llm_ms / 1000) | round(1) }}s</div>
+            <div class="label">Avg LLM time / file</div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if rate.first_at and rate.last_at %}
+    <p class="text-muted" style="margin-top: 0.5rem; font-size: 0.8rem;">
+        First analysis: {{ rate.first_at[:19] }} — Last: {{ rate.last_at[:19] }}
+        {% if rate.stats_count > 0 %} — Token stats from {{ rate.stats_count }} files{% endif %}
+    </p>
+    {% endif %}
+</div>
+{% endif %}
+
+{# ── Main Grid: Score Dist + Categories ── #}
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+    <div class="card">
+        <h3>Score Distribution</h3>
+        {% if score_dist %}
+        {% set max_count = score_dist|map(attribute='count')|max %}
+        <div class="bar-chart">
+            {% for item in score_dist %}
+            <div class="bar-row">
+                <span class="bar-label">{{ item.bracket }}</span>
+                <div class="bar-fill" style="width: {{ (item.count / max_count * 100) | int }}%"></div>
+                <span class="bar-count">{{ "{:,}".format(item.count) }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted">No data yet.</p>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h3>Top Categories</h3>
+        {% if categories %}
+        <table>
+            <thead><tr><th>Category</th><th class="text-right">Files</th></tr></thead>
+            <tbody>
+            {% for cat in categories[:12] %}
+            <tr>
+                <td><a href="{{ url_for('browse', category=cat.category) }}">{{ cat.category }}</a></td>
+                <td class="text-right">{{ "{:,}".format(cat.count) }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted">No analyses yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+{# ── Projects ── #}
+{% if project_stats %}
+<div class="card" style="margin-top: 1rem;">
+    <h3>
+        <details>
+            <summary style="cursor: pointer;">Projects ({{ project_stats | length }})</summary>
+        </details>
+    </h3>
+    <details>
+        <summary class="text-muted" style="cursor: pointer; font-size: 0.85rem; margin-bottom: 0.5rem;">Click to expand project breakdown</summary>
+        <table>
+            <thead>
+                <tr>
+                    <th>Project</th>
+                    <th class="text-right">Total</th>
+                    <th class="text-right">Analyzed</th>
+                    <th class="text-right">Extracted</th>
+                    <th class="text-right">Skipped</th>
+                    <th class="text-right">Size</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for p in project_stats %}
+            <tr>
+                <td><a href="{{ url_for('browse', project=p.project) }}">{{ p.project }}</a></td>
+                <td class="text-right">{{ "{:,}".format(p.total) }}</td>
+                <td class="text-right">{{ "{:,}".format(p.analyzed) }}</td>
+                <td class="text-right">{{ "{:,}".format(p.extracted) }}</td>
+                <td class="text-right">{{ "{:,}".format(p.skipped) }}</td>
+                <td class="text-right">{{ p.total_size | format_size }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </details>
+</div>
+{% endif %}
+
+{# ── Recent Analyses ── #}
+{% if recent %}
+<div class="card" style="margin-top: 1rem;">
+    <h3>Recent Analyses</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Path</th>
+                <th>Score</th>
+                <th>Category</th>
+                <th>Summary</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in recent %}
+        <tr>
+            <td class="text-muted" style="white-space: nowrap; font-size: 0.8rem;">{{ r.analyzed_at[11:19] if r.analyzed_at else '' }}</td>
+            <td><a href="{{ url_for('file_detail', file_id=r.file_id) }}" style="font-size: 0.85rem;">{{ r.path | subpath }}</a></td>
+            <td>
+                {% if r.relevance_score is not none %}
+                <span class="score {{ 'score-high' if r.relevance_score >= 50 else ('score-medium' if r.relevance_score >= 20 else 'score-low') }}">
+                    {{ r.relevance_score | round(0) | int }}
+                </span>
+                {% endif %}
+            </td>
+            <td><span class="tag">{{ r.category }}</span></td>
+            <td class="text-muted expandable-cell" style="max-width: 350px; cursor: pointer;" title="Click to expand">{{ (r.summary or '') | strip_preamble }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{# ── Top Extensions ── #}
+<div class="card" style="margin-top: 1rem;">
+    <details>
+        <summary style="cursor: pointer;"><h3 style="display: inline;">Top Extensions</h3></summary>
+        {% if top_ext %}
+        {% set max_ext = top_ext|map(attribute='count')|max %}
+        <div class="bar-chart" style="margin-top: 0.75rem;">
+            {% for item in top_ext %}
+            <div class="bar-row">
+                <span class="bar-label">{{ item.extension or '(none)' }}</span>
+                <div class="bar-fill" style="width: {{ (item.count / max_ext * 100) | int }}%"></div>
+                <span class="bar-count">{{ "{:,}".format(item.count) }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted">No data yet.</p>
+        {% endif %}
+    </details>
+</div>
+
+{# ── Crawl Run History ── #}
+{% if crawl_runs %}
+<div class="card" style="margin-top: 1rem;">
+    <details>
+        <summary style="cursor: pointer;"><h3 style="display: inline;">Crawl Run History ({{ crawl_runs | length }} runs)</h3></summary>
+        <table style="margin-top: 0.75rem;">
+            <thead>
+                <tr>
+                    <th>Run</th>
+                    <th>Root</th>
+                    <th>Started</th>
+                    <th>Completed</th>
+                    <th class="text-right">Found</th>
+                    <th class="text-right">Analyzed</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for run in crawl_runs %}
+            <tr>
+                <td>#{{ run.id }}</td>
+                <td class="text-muted" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ run.root_path }}</td>
+                <td style="white-space: nowrap;">{{ run.started_at[:16] if run.started_at else '—' }}</td>
+                <td style="white-space: nowrap;">{{ run.completed_at[:16] if run.completed_at else '—' }}</td>
+                <td class="text-right">{{ "{:,}".format(run.files_found) }}</td>
+                <td class="text-right">{{ "{:,}".format(run.files_analyzed) }}</td>
+                <td>
+                    {% if run.status == 'running' %}
+                    <span class="score score-medium">running</span>
+                    {% elif run.status == 'completed' %}
+                    <span class="score score-high">done</span>
+                    {% else %}
+                    <span class="tag">{{ run.status }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </details>
+</div>
+{% endif %}
+
+{# ── Recent Skips ── #}
+{% if recent_skips %}
+<div class="card" style="margin-top: 1rem;">
+    <details>
+        <summary style="cursor: pointer;"><h3 style="display: inline;">Recent Skips</h3></summary>
+        <table style="margin-top: 0.75rem;">
+            <thead>
+                <tr>
+                    <th>Project</th>
+                    <th>File</th>
+                    <th>Score</th>
+                    <th>Reason</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for s in recent_skips %}
+            <tr>
+                <td>{{ s.path | project_name }}</td>
+                <td>{{ s.filename }}</td>
+                <td>{{ s.relevance_score | round(0) | int }}</td>
+                <td class="text-muted">{{ s.skip_reason }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </details>
+</div>
+{% endif %}
+
+<script>
+(function() {
+    const REFRESH_INTERVAL = 10;
+    let countdown = REFRESH_INTERVAL;
+    let autoRefresh = document.getElementById('auto-refresh').checked;
+    const timerEl = document.getElementById('refresh-timer');
+    const updateEl = document.getElementById('last-update');
+
+    updateEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+
+    // Expandable summary cells
+    document.querySelectorAll('.expandable-cell').forEach(function(el) {
+        el.addEventListener('click', function() { this.classList.toggle('expanded'); });
+    });
+
+    document.getElementById('auto-refresh').addEventListener('change', function() {
+        autoRefresh = this.checked;
+        if (!autoRefresh) timerEl.textContent = '';
+        countdown = REFRESH_INTERVAL;
+    });
+
+    setInterval(function() {
+        if (!autoRefresh) return;
+        countdown--;
+        timerEl.textContent = 'Refresh in ' + countdown + 's';
+        if (countdown <= 0) {
+            countdown = REFRESH_INTERVAL;
+            window.location.reload();
+        }
+    }, 1000);
+})();
+</script>
+{% endblock %}

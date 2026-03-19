@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Compare Projects — ShareScout{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 1rem;">Compare Projects</h1>
+
+<div class="card">
+    <form method="get" action="{{ url_for('compare') }}" style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+        <div>
+            <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Select 2 or more projects:</label>
+            <select name="projects" multiple size="{{ [projects|length, 8] | min }}" style="min-width: 250px; padding: 0.35rem; border: 1px solid var(--border); border-radius: 4px; background: var(--input-bg); color: var(--text);">
+                {% for p in projects %}
+                <option value="{{ p.project }}" {{ 'selected' if p.project in selected }}>{{ p.project }} ({{ p.count }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn">Compare</button>
+        {% if selected %}
+        <a href="{{ url_for('compare') }}" class="btn btn-sm" style="background: var(--text-muted);">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+{% if selected | length >= 2 %}
+    {% if all_categories %}
+    <div class="card" style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    {% for proj in selected %}
+                    <th>{{ proj }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for cat in all_categories %}
+                <tr style="vertical-align: top;">
+                    <td><span class="tag">{{ cat }}</span></td>
+                    {% for proj in selected %}
+                    <td>
+                        {% set files = grid.get(cat, {}).get(proj, []) %}
+                        {% if files %}
+                        <ul style="list-style: none; margin: 0; padding: 0;">
+                            {% for f in files %}
+                            <li style="margin-bottom: 0.25rem;">
+                                <a href="{{ url_for('file_detail', file_id=f.id) }}">{{ f.filename }}</a>
+                                {% if f.relevance_score is not none %}
+                                <span class="score {{ 'score-high' if f.relevance_score >= 50 else ('score-medium' if f.relevance_score >= 20 else 'score-low') }}" style="font-size: 0.7rem;">{{ f.relevance_score | round(0) | int }}</span>
+                                {% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% else %}
+                        <span class="text-muted" style="font-size: 0.85rem;">--</span>
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="card">
+        <p class="text-muted">No analyzed files found for the selected projects.</p>
+    </div>
+    {% endif %}
+{% elif selected | length == 1 %}
+<div class="card">
+    <p class="text-muted">Please select at least 2 projects to compare.</p>
+</div>
+{% endif %}
+{% endblock %}

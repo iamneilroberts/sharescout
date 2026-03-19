@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{% if current_keyword %}{{ current_keyword }} — {% endif %}Tags — ShareScout{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 1rem;">
+    Keyword Explorer
+    {% if current_keyword %}<span class="tag" style="font-size: 0.5em; vertical-align: middle;">{{ current_keyword }}</span>{% endif %}
+</h1>
+
+<div class="two-col">
+    <div class="sidebar">
+        <div class="card">
+            <h3>Keywords ({{ keywords | length }})</h3>
+            {% if keywords %}
+            <div style="max-height: 70vh; overflow-y: auto;">
+                <ul>
+                    {% set alpha = namespace(current='') %}
+                    {% for kw in keywords %}
+                        {% set letter = kw.keyword[0] | upper if kw.keyword else '?' %}
+                        {% if letter != alpha.current %}
+                            {% set alpha.current = letter %}
+                            <li style="margin-top: 0.5rem; font-weight: 700; color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; pointer-events: none;">{{ letter }}</li>
+                        {% endif %}
+                        <li>
+                            <a href="{{ url_for('tags', keyword=kw.keyword) }}" class="{{ 'active' if current_keyword == kw.keyword }}">
+                                {{ kw.keyword }} <span class="count">{{ kw.count }}</span>
+                            </a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% else %}
+            <p class="text-muted">No keywords found.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div>
+        {% if current_keyword %}
+        <div class="card">
+            <p class="text-muted" style="margin-bottom: 0.5rem;">{{ files | length }} file{{ 's' if files | length != 1 }} tagged with "{{ current_keyword }}"</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Project</th>
+                        <th>Filename</th>
+                        <th>Category</th>
+                        <th>Score</th>
+                        <th>Summary</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for f in files %}
+                    <tr>
+                        <td>{{ f.project }}</td>
+                        <td><a href="{{ url_for('file_detail', file_id=f.id) }}">{{ f.filename }}</a></td>
+                        <td>{% if f.category %}<span class="tag">{{ f.category }}</span>{% endif %}</td>
+                        <td>
+                            {% if f.relevance_score is not none %}
+                            <span class="score {{ 'score-high' if f.relevance_score >= 50 else ('score-medium' if f.relevance_score >= 20 else 'score-low') }}">
+                                {{ f.relevance_score | round(0) | int }}
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ (f.summary or '') | strip_preamble }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not files %}
+                    <tr><td colspan="5" class="text-muted" style="text-align: center; padding: 2rem;">No files found.</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="card">
+            <p class="text-muted">Select a keyword from the list to see tagged files.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

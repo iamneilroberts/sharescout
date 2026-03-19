@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Timeline — ShareScout{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 1rem;">Timeline</h1>
+
+<div class="card" style="margin-bottom: 1rem;">
+    <form method="get" action="{{ url_for('timeline') }}" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        <label style="font-size: 0.85rem; color: var(--text-muted);">Filter by project:</label>
+        <select name="project" style="padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 4px; background: var(--input-bg); color: var(--text);" onchange="this.form.submit()">
+            <option value="">All projects</option>
+            {% for p in projects %}
+            <option value="{{ p.project }}" {{ 'selected' if current_project == p.project }}>{{ p.project }} ({{ p.count }})</option>
+            {% endfor %}
+        </select>
+        {% if current_project %}
+        <a href="{{ url_for('timeline') }}" class="btn btn-sm" style="background: var(--text-muted);">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+{% for month, files in months.items() %}
+<div class="card">
+    <h2 style="font-size: 1.1rem; margin-bottom: 0.75rem;">{{ month }} <span class="text-muted" style="font-size: 0.8rem; font-weight: 400;">{{ files | length }} file{{ 's' if files | length != 1 }}</span></h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Project</th>
+                <th>Filename</th>
+                <th>Category</th>
+                <th>Score</th>
+                <th>Summary</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for f in files %}
+            <tr>
+                <td>{{ f.project }}</td>
+                <td><a href="{{ url_for('file_detail', file_id=f.id) }}">{{ f.filename }}</a></td>
+                <td>{% if f.category %}<span class="tag">{{ f.category }}</span>{% endif %}</td>
+                <td>
+                    {% if f.relevance_score is not none %}
+                    <span class="score {{ 'score-high' if f.relevance_score >= 50 else ('score-medium' if f.relevance_score >= 20 else 'score-low') }}">
+                        {{ f.relevance_score | round(0) | int }}
+                    </span>
+                    {% endif %}
+                </td>
+                <td class="text-muted" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ (f.summary or '') | strip_preamble }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endfor %}
+
+{% if not months %}
+<div class="card">
+    <p class="text-muted" style="text-align: center; padding: 2rem;">No files with modification dates found.</p>
+</div>
+{% endif %}
+{% endblock %}

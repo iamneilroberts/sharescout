@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}{{ file.filename }} — ShareScout{% endblock %}
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+    <a href="{{ url_for('browse') }}">← Back to Browse</a>
+    <a href="{{ url_for('file_raw', file_id=file.id) }}" class="btn btn-sm" target="_blank">View Original</a>
+</div>
+<h1 style="margin-bottom: 1rem;">{{ file.filename }}</h1>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+    <div class="card">
+        <h3>File Metadata</h3>
+        <dl class="meta-grid">
+            <dt>Path</dt>
+            <dd style="word-break: break-all;">{{ file.path }}</dd>
+            <dt>Extension</dt>
+            <dd>{{ file.extension or '—' }}</dd>
+            <dt>Size</dt>
+            <dd>{{ file.size_bytes | format_size }}</dd>
+            <dt>Modified</dt>
+            <dd>{{ file.modified_at or '—' }}</dd>
+            <dt>Score</dt>
+            <dd>
+                {% if file.relevance_score is not none %}
+                <span class="score {{ 'score-high' if file.relevance_score >= 50 else ('score-medium' if file.relevance_score >= 20 else 'score-low') }}">
+                    {{ file.relevance_score | round(0) | int }}
+                </span>
+                {% else %}
+                —
+                {% endif %}
+            </dd>
+            <dt>Status</dt>
+            <dd>{{ file.status }}</dd>
+            <dt>Content Hash</dt>
+            <dd style="font-family: monospace; font-size: 0.8rem; word-break: break-all;">{{ file.content_hash or '—' }}</dd>
+        </dl>
+    </div>
+
+    {% if file.analysis %}
+    <div class="card">
+        <h3>Analysis</h3>
+        <dl class="meta-grid">
+            <dt>Category</dt>
+            <dd><span class="tag">{{ file.analysis.category }}</span></dd>
+            <dt>Summary</dt>
+            <dd>{{ file.analysis.summary }}</dd>
+            <dt>Keywords</dt>
+            <dd>
+                {% for kw in file.analysis.keywords %}
+                <span class="tag">{{ kw }}</span>
+                {% endfor %}
+            </dd>
+            <dt>Analyzed</dt>
+            <dd>{{ file.analysis.analyzed_at }}</dd>
+        </dl>
+    </div>
+    {% endif %}
+</div>
+
+{% if file.analysis and file.analysis.text_sample %}
+<div class="card" style="margin-top: 1rem;">
+    <h3>Text Sample</h3>
+    <div class="text-sample">{{ file.analysis.text_sample }}</div>
+</div>
+{% endif %}
+
+{% if file.skip_reason %}
+<div class="card" style="margin-top: 1rem;">
+    <h3>Skip Reason</h3>
+    <p>{{ file.skip_reason }}</p>
+</div>
+{% endif %}
+
+{% if related_same_name or related_keywords %}
+<div class="card" style="margin-top: 1rem;">
+    <h3>Related Files</h3>
+
+    {% if related_same_name %}
+    <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem; margin-top: 0.5rem;">Same filename in other projects</h4>
+    <table>
+        <thead>
+            <tr>
+                <th>Project</th>
+                <th>Filename</th>
+                <th>Category</th>
+                <th>Score</th>
+                <th>Summary</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in related_same_name %}
+            <tr>
+                <td>{{ r.project }}</td>
+                <td><a href="{{ url_for('file_detail', file_id=r.id) }}">{{ r.filename }}</a></td>
+                <td>{% if r.category %}<span class="tag">{{ r.category }}</span>{% endif %}</td>
+                <td>
+                    {% if r.relevance_score is not none %}
+                    <span class="score {{ 'score-high' if r.relevance_score >= 50 else ('score-medium' if r.relevance_score >= 20 else 'score-low') }}">
+                        {{ r.relevance_score | round(0) | int }}
+                    </span>
+                    {% endif %}
+                </td>
+                <td class="text-muted" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ (r.summary or '') | strip_preamble }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    {% if related_keywords %}
+    <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem; margin-top: 1rem;">Overlapping keywords</h4>
+    <table>
+        <thead>
+            <tr>
+                <th>Project</th>
+                <th>Filename</th>
+                <th>Category</th>
+                <th>Score</th>
+                <th>Overlap</th>
+                <th>Summary</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in related_keywords %}
+            <tr>
+                <td>{{ r.project }}</td>
+                <td><a href="{{ url_for('file_detail', file_id=r.id) }}">{{ r.filename }}</a></td>
+                <td>{% if r.category %}<span class="tag">{{ r.category }}</span>{% endif %}</td>
+                <td>
+                    {% if r.relevance_score is not none %}
+                    <span class="score {{ 'score-high' if r.relevance_score >= 50 else ('score-medium' if r.relevance_score >= 20 else 'score-low') }}">
+                        {{ r.relevance_score | round(0) | int }}
+                    </span>
+                    {% endif %}
+                </td>
+                <td><span class="tag">{{ r.overlap }} keyword{{ 's' if r.overlap != 1 }}</span></td>
+                <td class="text-muted" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ (r.summary or '') | strip_preamble }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

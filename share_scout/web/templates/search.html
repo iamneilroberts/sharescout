@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Search — ShareScout{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 1rem;">Search</h1>
+
+<form class="search-form" method="get" action="{{ url_for('search') }}">
+    <input type="text" name="q" value="{{ query }}" placeholder="Search summaries, keywords, and text samples..." autofocus>
+    <button type="submit">Search</button>
+</form>
+
+{% if query %}
+<p class="text-muted" style="margin-bottom: 1rem;">{{ "{:,}".format(total) }} results for "{{ query }}"</p>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Project</th>
+                <th>Filename</th>
+                <th>Score</th>
+                <th>Category</th>
+                <th>Summary</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in results %}
+        <tr>
+            <td><a href="{{ url_for('browse', project=r.path | project_name) }}">{{ r.path | project_name }}</a></td>
+            <td><a href="{{ url_for('file_detail', file_id=r.id) }}">{{ r.filename }}</a></td>
+            <td>
+                {% if r.relevance_score is not none %}
+                <span class="score {{ 'score-high' if r.relevance_score >= 50 else ('score-medium' if r.relevance_score >= 20 else 'score-low') }}">
+                    {{ r.relevance_score | round(0) | int }}
+                </span>
+                {% endif %}
+            </td>
+            <td>{% if r.category %}<span class="tag">{{ r.category }}</span>{% endif %}</td>
+            <td>{{ r.summary_hl | safe if r.summary_hl else ((r.summary or '') | strip_preamble) }}</td>
+        </tr>
+        {% endfor %}
+        {% if not results %}
+        <tr><td colspan="5" class="text-muted" style="text-align: center; padding: 2rem;">No results found.</td></tr>
+        {% endif %}
+        </tbody>
+    </table>
+</div>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="{{ url_for('search', q=query, page=page-1) }}">Prev</a>
+    {% endif %}
+    {% for p in range(1, total_pages + 1) %}
+        {% if p == page %}
+        <span class="current">{{ p }}</span>
+        {% elif p <= 3 or p > total_pages - 2 or (p >= page - 1 and p <= page + 1) %}
+        <a href="{{ url_for('search', q=query, page=p) }}">{{ p }}</a>
+        {% elif p == 4 or p == total_pages - 2 %}
+        <span>…</span>
+        {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+    <a href="{{ url_for('search', q=query, page=page+1) }}">Next</a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

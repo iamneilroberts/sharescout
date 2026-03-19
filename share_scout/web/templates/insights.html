@@ -1,0 +1,329 @@
+{% extends "base.html" %}
+{% block title %}Insights — ShareScout{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 1rem;">Insights</h1>
+
+{# Summary stat cards #}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="value">{{ stale|length }}</div>
+        <div class="label">Stale High-Value Files</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ orphan_specs|length }}</div>
+        <div class="label">Orphan Feature Specs</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ dead_handoffs|length }}</div>
+        <div class="label">Dead Handoffs</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ doc_gaps|length }}</div>
+        <div class="label">Projects with Doc Gaps</div>
+    </div>
+</div>
+
+{# 1. Abandoned & Stale Work #}
+<div class="card">
+    <h2>Abandoned &amp; Stale Work</h2>
+
+    <details open>
+        <summary><strong>High-Value Stale Files</strong> <span class="text-muted">(score 50+, 3+ months old)</span></summary>
+        {% if stale %}
+        <table style="margin-top: 0.5rem;">
+            <thead>
+                <tr><th>Project</th><th>File</th><th>Score</th><th>Category</th><th>Last Modified</th><th>Days Stale</th></tr>
+            </thead>
+            <tbody>
+            {% for f in stale %}
+                <tr>
+                    <td><a href="{{ url_for('browse', project=f.project) }}">{{ f.project }}</a></td>
+                    <td><a href="{{ url_for('file_detail', file_id=f.id) }}">{{ f.filename }}</a></td>
+                    <td><span class="score score-high">{{ f.relevance_score|int }}</span></td>
+                    <td><span class="tag">{{ f.category or '—' }}</span></td>
+                    <td class="text-muted">{{ f.modified_at[:10] if f.modified_at else '—' }}</td>
+                    <td>{{ f.days_stale }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted" style="margin-top: 0.5rem;">No stale high-value files found.</p>
+        {% endif %}
+    </details>
+
+    <details style="margin-top: 1rem;">
+        <summary><strong>Orphan Feature Specs</strong> <span class="text-muted">(specs with no code in same project)</span></summary>
+        {% if orphan_specs %}
+        <table style="margin-top: 0.5rem;">
+            <thead>
+                <tr><th>Project</th><th>Spec File</th><th>Summary</th></tr>
+            </thead>
+            <tbody>
+            {% for f in orphan_specs %}
+                <tr>
+                    <td><a href="{{ url_for('browse', project=f.project) }}">{{ f.project }}</a></td>
+                    <td><a href="{{ url_for('file_detail', file_id=f.id) }}">{{ f.filename }}</a></td>
+                    <td class="text-muted">{{ f.summary[:120] if f.summary else '—' }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted" style="margin-top: 0.5rem;">No orphan specs found.</p>
+        {% endif %}
+    </details>
+
+    <details style="margin-top: 1rem;">
+        <summary><strong>Dead Session Handoffs</strong> <span class="text-muted">(handoffs with unfinished next steps)</span></summary>
+        {% if dead_handoffs %}
+        <table style="margin-top: 0.5rem;">
+            <thead>
+                <tr><th>Project</th><th>Handoff File</th><th>Last Modified</th><th>Preview</th></tr>
+            </thead>
+            <tbody>
+            {% for f in dead_handoffs %}
+                <tr>
+                    <td><a href="{{ url_for('browse', project=f.project) }}">{{ f.project }}</a></td>
+                    <td><a href="{{ url_for('file_detail', file_id=f.id) }}">{{ f.filename }}</a></td>
+                    <td class="text-muted">{{ f.modified_at[:10] if f.modified_at else '—' }}</td>
+                    <td class="text-muted" style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ f.preview }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted" style="margin-top: 0.5rem;">No dead handoffs found.</p>
+        {% endif %}
+    </details>
+</div>
+
+{# 2. Cross-Project Patterns #}
+<div class="card">
+    <h2>Cross-Project Patterns</h2>
+
+    <details>
+        <summary><strong>Shared Filenames</strong> <span class="text-muted">(same filename in 3+ projects)</span></summary>
+        {% if shared_filenames %}
+        <table style="margin-top: 0.5rem;">
+            <thead>
+                <tr><th>Filename</th><th>Projects</th><th>Categories</th></tr>
+            </thead>
+            <tbody>
+            {% for sf in shared_filenames %}
+                <tr>
+                    <td><strong>{{ sf.filename }}</strong> <span class="text-muted">({{ sf.count }})</span></td>
+                    <td>
+                        {% for proj, cat in sf.projects.items() %}
+                        <a href="{{ url_for('browse', project=proj) }}">{{ proj }}</a>{% if not loop.last %}, {% endif %}
+                        {% endfor %}
+                    </td>
+                    <td>
+                        {% set seen_cats = [] %}
+                        {% for c in sf.projects.values() %}
+                            {% if c not in seen_cats %}
+                                {% if seen_cats.append(c) %}{% endif %}
+                                <span class="tag">{{ c or '—' }}</span>
+                            {% endif %}
+                        {% endfor %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted" style="margin-top: 0.5rem;">No shared filenames found.</p>
+        {% endif %}
+    </details>
+
+    <details style="margin-top: 1rem;">
+        <summary><strong>Technology Heatmap</strong> <span class="text-muted">(keywords across project groups)</span></summary>
+        {% if tech_matrix.keywords %}
+        <div style="overflow-x: auto; margin-top: 0.5rem;">
+            <table style="font-size: 0.8rem;">
+                <thead>
+                    <tr>
+                        <th>Keyword</th>
+                        {% for g in tech_matrix.groups %}<th style="writing-mode: vertical-lr; text-orientation: mixed; max-width: 40px;">{{ g }}</th>{% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                {% for kw in tech_matrix.keywords %}
+                    <tr>
+                        <td><a href="{{ url_for('tags', keyword=kw) }}">{{ kw }}</a></td>
+                        {% for g in tech_matrix.groups %}
+                            {% set count = tech_matrix.matrix[kw].get(g, 0) %}
+                            {% if count > 0 %}
+                                {% set intensity = [count * 15, 80]|min %}
+                                <td style="background-color: rgba(77, 171, 247, {{ intensity / 100 }}); text-align: center; color: {% if intensity > 40 %}white{% else %}var(--text){% endif %};">{{ count }}</td>
+                            {% else %}
+                                <td style="text-align: center; color: var(--border);">·</td>
+                            {% endif %}
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted" style="margin-top: 0.5rem;">Not enough cross-group keywords to show.</p>
+        {% endif %}
+    </details>
+
+    <details style="margin-top: 1rem;">
+        <summary><strong>Category Balance</strong> <span class="text-muted">(per project group)</span></summary>
+        {% if category_balance %}
+        <div style="margin-top: 0.5rem;">
+        {% for cb in category_balance %}
+            <div style="margin-bottom: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                    <strong>{{ cb.group }}</strong>
+                    <span class="text-muted">({{ cb.total }} files)</span>
+                    {% if cb.flag %}
+                        <span class="score {% if cb.flag == 'over-specced' %}score-medium{% else %}score-low{% endif %}">{{ cb.flag }}</span>
+                    {% endif %}
+                </div>
+                <div style="display: flex; height: 20px; border-radius: 3px; overflow: hidden; background: var(--progress-track);">
+                    {% set colors = {'Code': '#4dabf7', 'Feature Spec': '#fcc419', 'Architecture': '#51cf66', 'Session Handoff': '#ff6b6b', 'Testing': '#cc5de8', 'README': '#20c997', 'Configuration': '#868e96'} %}
+                    {% for cat, pct in cb.breakdown.items() %}
+                        {% if pct > 0 %}
+                        <div style="width: {{ pct }}%; background: {{ colors.get(cat, '#868e96') }};" title="{{ cat }}: {{ pct }}%"></div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.25rem; font-size: 0.75rem;">
+                    {% for cat, pct in cb.breakdown.items() %}
+                        <span style="color: var(--text-muted);">
+                            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: {{ colors.get(cat, '#868e96') }}; vertical-align: middle;"></span>
+                            {{ cat }} {{ pct }}%
+                        </span>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted" style="margin-top: 0.5rem;">No project groups configured.</p>
+        {% endif %}
+    </details>
+</div>
+
+{# 3. High-Value Discoveries #}
+<div class="card">
+    <h2>High-Value Discoveries</h2>
+
+    <details>
+        <summary><strong>Keyword Clusters</strong> <span class="text-muted">(files sharing 3+ keywords)</span></summary>
+        {% if keyword_clusters %}
+        <div style="margin-top: 0.5rem;">
+        {% for cluster in keyword_clusters %}
+            <div style="margin-bottom: 1rem; padding: 0.75rem; border: 1px solid var(--border); border-radius: 4px;">
+                <div style="margin-bottom: 0.5rem;">
+                    {% for kw in cluster.shared_keywords %}
+                        <a href="{{ url_for('tags', keyword=kw) }}" class="tag">{{ kw }}</a>
+                    {% endfor %}
+                </div>
+                <table style="font-size: 0.85rem;">
+                    {% for f in cluster.files %}
+                    <tr>
+                        <td><a href="{{ url_for('browse', project=f.project) }}">{{ f.project }}</a></td>
+                        <td><a href="{{ url_for('file_detail', file_id=f.id) }}">{{ f.filename }}</a></td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </div>
+        {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted" style="margin-top: 0.5rem;">No keyword clusters found.</p>
+        {% endif %}
+    </details>
+
+    <details style="margin-top: 1rem;">
+        <summary><strong>Unique vs Universal Keywords</strong></summary>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.5rem;">
+            <div>
+                <h3 style="font-size: 0.85rem; margin-bottom: 0.5rem;">Universal (5+ projects)</h3>
+                {% if keyword_dist.universal %}
+                <div style="display: flex; flex-wrap: wrap; gap: 0.25rem;">
+                    {% for kw in keyword_dist.universal %}
+                        <a href="{{ url_for('tags', keyword=kw.keyword) }}" class="tag">{{ kw.keyword }} <span class="text-muted">({{ kw.project_count }})</span></a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted">None found.</p>
+                {% endif %}
+            </div>
+            <div>
+                <h3 style="font-size: 0.85rem; margin-bottom: 0.5rem;">Unique (1 project only) <span class="text-muted">— showing first 50</span></h3>
+                {% if keyword_dist.unique %}
+                <div style="display: flex; flex-wrap: wrap; gap: 0.25rem;">
+                    {% for kw in keyword_dist.unique %}
+                        <a href="{{ url_for('tags', keyword=kw.keyword) }}" class="tag" title="{{ kw.project }}">{{ kw.keyword }}</a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted">None found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </details>
+</div>
+
+{# 4. Improvement Opportunities #}
+<div class="card">
+    <h2>Improvement Opportunities</h2>
+
+    <details>
+        <summary><strong>Documentation Gaps</strong> <span class="text-muted">(projects missing key doc types)</span></summary>
+        {% if doc_gaps %}
+        <table style="margin-top: 0.5rem;">
+            <thead>
+                <tr><th>Project</th><th>Has Categories</th><th>Missing</th></tr>
+            </thead>
+            <tbody>
+            {% for dg in doc_gaps %}
+                <tr>
+                    <td><a href="{{ url_for('browse', project=dg.project) }}">{{ dg.project }}</a></td>
+                    <td>
+                        {% for c in dg.categories %}<span class="tag">{{ c }}</span> {% endfor %}
+                    </td>
+                    <td>
+                        {% for g in dg.gaps %}<span class="score score-medium">{{ g }}</span> {% endfor %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted" style="margin-top: 0.5rem;">No documentation gaps found.</p>
+        {% endif %}
+    </details>
+
+    <details style="margin-top: 1rem;">
+        <summary><strong>Under-Analyzed Files</strong> <span class="text-muted">(large text, few keywords — candidates for re-analysis)</span></summary>
+        {% if under_analyzed %}
+        <table style="margin-top: 0.5rem;">
+            <thead>
+                <tr><th>Project</th><th>File</th><th>Category</th><th>Text Length</th><th>Keywords</th><th>Score</th></tr>
+            </thead>
+            <tbody>
+            {% for f in under_analyzed %}
+                <tr>
+                    <td><a href="{{ url_for('browse', project=f.project) }}">{{ f.project }}</a></td>
+                    <td><a href="{{ url_for('file_detail', file_id=f.id) }}">{{ f.filename }}</a></td>
+                    <td><span class="tag">{{ f.category or '—' }}</span></td>
+                    <td>{{ f.text_length|filesizeformat }}</td>
+                    <td>{{ f.keyword_count }}</td>
+                    <td><span class="score {% if f.relevance_score >= 60 %}score-high{% elif f.relevance_score >= 30 %}score-medium{% else %}score-low{% endif %}">{{ f.relevance_score|int }}</span></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted" style="margin-top: 0.5rem;">No under-analyzed files found.</p>
+        {% endif %}
+    </details>
+</div>
+
+{% endblock %}
