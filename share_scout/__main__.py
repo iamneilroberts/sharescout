@@ -1,0 +1,88 @@
+"""CLI entry point: python -m share_scout"""
+
+import argparse
+import logging
+import sys
+
+from .config import load_config, load_scoring_rules, apply_cli_overrides
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="share_scout",
+        description="ShareScout — Network share document discovery tool",
+    )
+    parser.add_argument(
+        "--config", default="config.yaml", help="Path to config.yaml"
+    )
+    parser.add_argument(
+        "--rules", default="scoring_rules.yaml", help="Path to scoring_rules.yaml"
+    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
+
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    # crawl subcommand
+    crawl_parser = sub.add_parser("crawl", help="Run the document crawler")
+    crawl_parser.add_argument("--root-path", help="Root path to crawl")
+    crawl_parser.add_argument("--dry-run", action="store_true", help="Score only, don't extract or analyze")
+    crawl_parser.add_argument("--ollama-endpoint", help="Ollama API endpoint")
+    crawl_parser.add_argument("--ollama-model", help="Ollama model name")
+    crawl_parser.add_argument("--db-path", help="SQLite database path")
+    crawl_parser.add_argument("--batch-size", type=int, help="Batch commit size")
+    crawl_parser.add_argument("--openai-base-url", help="OpenAI-compatible API base URL")
+    crawl_parser.add_argument("--openai-model", help="OpenAI-compatible model name")
+    crawl_parser.add_argument("--openai-api-key-env", help="Env var name containing API key (default: OPENAI_API_KEY)")
+
+    # web subcommand
+    web_parser = sub.add_parser("web", help="Start the web UI")
+    web_parser.add_argument("--host", help="Web server host")
+    web_parser.add_argument("--port", type=int, help="Web server port")
+    web_parser.add_argument("--db-path", help="SQLite database path")
+
+    args = parser.parse_args()
+
+    # Setup logging
+    level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    config = load_config(args.config)
+
+    if args.command == "crawl":
+        rules = load_scoring_rules(args.rules)
+        config = apply_cli_overrides(
+            config,
+            root_path=args.root_path,
+            ollama_endpoint=args.ollama_endpoint,
+            ollama_model=args.ollama_model,
+            db_path=args.db_path,
+            batch_size=args.batch_size,
+            openai_base_url=args.openai_base_url,
+            openai_model=args.openai_model,
+            openai_api_key_env=args.openai_api_key_env,
+        )
+        from .pipeline import run_crawl
+        run_crawl(config, rules, dry_run=args.dry_run)
+
+    elif args.command == "web":
+        config = apply_cli_overrides(
+            config,
+            db_path=args.db_path,
+            host=args.host,
+            port=args.port,
+        )
+        from .web.app import create_app
+        app = create_app(config)
+        app.run(
+            host=config["web"]["host"],
+            port=config["web"]["port"],
+            debug=True,
+        )
+
+
+if __name__ == "__main__":
+    main()

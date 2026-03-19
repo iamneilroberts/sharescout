@@ -1,0 +1,8 @@
+pyyaml
+ollama
+python-docx
+pymupdf
+openpyxl
+flask
+chardet
+httpx
