@@ -1,0 +1,21 @@
+# Project Groups — customize how projects appear in the Browse sidebar.
+# Projects not listed here appear under "Other".
+# Group names and members are free-form — organize however makes sense for you.
+
+groups:
+  Frontend:
+    - my-react-app
+    - landing-page
+    - design-system
+
+  Backend:
+    - api-server
+    - auth-service
+    - worker
+
+  Data:
+    - etl-pipeline
+    - analytics
+    - ml-experiments
+
+  # Add your own groups here

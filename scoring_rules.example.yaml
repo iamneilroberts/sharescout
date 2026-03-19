@@ -1,0 +1,74 @@
+score_threshold: 35
+
+extension_scores:
+  documentation:
+    score: 50
+    extensions: [".md", ".mdx", ".rst", ".txt", ".adoc"]
+  office_docs:
+    score: 40
+    extensions: [".docx", ".pdf", ".pptx", ".doc", ".xls", ".xlsx"]
+  data_config:
+    score: 20
+    extensions: [".yaml", ".yml", ".toml", ".csv", ".env.example"]
+  json_files:
+    score: 5
+    extensions: [".json"]
+  web_content:
+    score: 15
+    extensions: [".html", ".htm"]
+  source_code:
+    score: 5
+    extensions: [".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".rb", ".sql", ".css"]
+  media:
+    score: -100
+    extensions: [".jpg", ".jpeg", ".png", ".gif", ".svg", ".ico", ".webp",
+                 ".mp4", ".mp3", ".wav", ".ttf", ".woff", ".woff2", ".eot"]
+  skip:
+    score: -100
+    extensions: [".tmp", ".bak", ".log", ".lock", ".dll", ".exe", ".sys",
+                 ".pyc", ".pyo", ".so", ".dylib", ".o", ".a",
+                 ".map", ".min.js", ".min.css", ".chunk.js",
+                 ".wasm", ".br", ".gz", ".tar", ".zip", ".7z",
+                 ".sqlite", ".db", ".sqlite3"]
+
+path_rules:
+  - pattern: "*/docs/*"
+    score: +20
+  - pattern: "*/doc/*"
+    score: +20
+  - pattern: "*/features/*"
+    score: +25
+  - pattern: "*/specs/*"
+    score: +15
+  - pattern: "*README.md"
+    score: +15
+  - pattern: "*CHANGELOG.md"
+    score: +10
+  - pattern: "*/backup/*"
+    score: -30
+  - pattern: "*/test_data/*"
+    score: -15
+  - pattern: "*/fixtures/*"
+    score: -15
+  - pattern: "*/migrations/*"
+    score: -10
+
+  # Add your own project-specific boosts here:
+  # - pattern: "*/my-important-project/*"
+  #   score: +10
+
+size_rules:
+  - min_bytes: 0
+    max_bytes: 100
+    score: -15
+  - min_bytes: 100
+    max_bytes: 500
+    score: -5
+  - min_bytes: 500
+    max_bytes: 1048576
+    score: +5
+  - min_bytes: 1048576
+    max_bytes: 10485760
+    score: 0
+  - min_bytes: 10485760
+    score: -25

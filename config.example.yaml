@@ -1,0 +1,43 @@
+crawl:
+  root_path: "."          # Directory to crawl — set to your project root
+  batch_size: 100
+  skip_hidden: true
+  skip_dirs:
+    - "node_modules"
+    - "__pycache__"
+    - ".venv"
+    - "venv"
+    - "dist"
+    - "build"
+    - ".git"
+    - ".idea"
+    - ".vscode"
+    - "coverage"
+    - ".pytest_cache"
+    - ".mypy_cache"
+    - ".cache"
+  text_sample_max_chars: 4000
+  hash_bytes: 65536
+
+# LLM provider configuration — choose ONE:
+
+# Option A: Local Ollama (default, free, private)
+ollama:
+  endpoint: "http://localhost:11434"
+  model: "mistral:7b"       # Any Ollama model — smaller models are faster
+  timeout: 120
+
+# Option B: OpenAI-compatible API (faster, costs money)
+# Uncomment and set your API key in .env (OPENAI_API_KEY=sk-...)
+# openai:
+#   base_url: "https://api.openai.com/v1"   # Or any compatible endpoint
+#   model: "gpt-4o-mini"
+#   api_key_env: "OPENAI_API_KEY"            # Environment variable name
+#   timeout: 60
+
+catalog:
+  db_path: "share_scout.db"
+
+web:
+  host: "0.0.0.0"
+  port: 8080
