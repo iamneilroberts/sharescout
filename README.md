@@ -4,7 +4,7 @@
 
 Crawls project directories, scores files by relevance, extracts text, and uses an LLM to summarize and categorize everything into a searchable catalog with a web UI. Point it at a directory full of projects and get an organized, searchable knowledge base with AI-generated summaries, keywords, and cross-project analysis.
 
-![ShareScout Dashboard](docs/Automated_project_discovery_and_classification.png)
+![ShareScout Dashboard](docs/main_dashboard_with_active_crawl.png)
 
 ## Features
 

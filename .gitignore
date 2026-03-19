@@ -32,7 +32,6 @@ project_groups.yaml
 docs/summaries/
 docs/superpowers/
 docs/share_scout_plan.md
-docs/main_dashboard_with_active_crawl.png
 
 # Logs
 *.log
