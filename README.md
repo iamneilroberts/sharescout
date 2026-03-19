@@ -68,7 +68,7 @@ Works with any OpenAI-compatible endpoint (OpenAI, Anthropic, local vLLM, etc.).
 
 Overview of your catalog — file counts, category breakdown, project distribution, and crawl status.
 
-![Dashboard](docs/Automated_project_discovery_and_classification.png)
+![Dashboard](docs/main_dashboard_with_active_crawl.png)
 
 ### Browse
 
