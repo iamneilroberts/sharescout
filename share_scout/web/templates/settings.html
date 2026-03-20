@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% block title %}Settings — ShareScout{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 1.5rem;">Settings</h1>
+
+{% if error %}
+<div style="background: var(--score-low-bg); color: var(--score-low-fg); border: 1px solid var(--danger); border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1rem;">
+    ⚠ {{ error }}
+</div>
+{% endif %}
+{% if success %}
+<div style="background: var(--score-high-bg); color: var(--score-high-fg); border: 1px solid var(--success); border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1rem;">
+    ✓ {{ success }}
+</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('settings') }}">
+
+    <div class="card">
+        <h3>Crawl Root Path</h3>
+        <p class="text-muted" style="margin-bottom: 0.75rem; font-size: 0.9rem;">
+            The folder ShareScout will scan. Type a path or use the folder browser below.
+        </p>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="text" name="root_path" id="root_path"
+                   value="{{ config.crawl.root_path }}"
+                   placeholder="S:/Engineering"
+                   style="flex: 1; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 4px; font-size: 1rem; background: var(--input-bg); color: var(--text); font-family: monospace;">
+            <button type="button" id="toggle-browser" class="btn btn-sm" style="background: #6c757d; white-space: nowrap;">Browse...</button>
+        </div>
+        <p class="text-muted" style="margin-top: 0.4rem; font-size: 0.8rem;">
+            Current: <code>{{ config.crawl.root_path }}</code>
+        </p>
+        <div id="folder-browser" style="display: none; margin-top: 0.75rem; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
+            <div style="padding: 0.5rem 0.75rem; background: var(--nav-bg); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <button type="button" id="fb-up" class="btn btn-sm" style="background: #495057;" disabled>Up</button>
+                <code id="fb-current-path" style="font-size: 0.82rem; color: #adb5bd; flex: 1; word-break: break-all;">-</code>
+                <button type="button" id="fb-select" class="btn btn-sm" style="background: #198754;">Select This Folder</button>
+            </div>
+            <div id="fb-list" style="max-height: 260px; overflow-y: auto; padding: 0.25rem 0;"></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Ollama Settings</h3>
+        <p class="text-muted" style="margin-bottom: 0.75rem; font-size: 0.9rem;">
+            The Ollama server and model used for document analysis.
+        </p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div>
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.4rem;">Ollama Endpoint</label>
+                <input type="text" name="ollama_endpoint"
+                       value="{{ config.ollama.endpoint }}"
+                       placeholder="http://localhost:11434"
+                       style="width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 4px; font-size: 0.9rem; background: var(--input-bg); color: var(--text); font-family: monospace;">
+            </div>
+            <div>
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.4rem;">
+                    Model <span id="model-status" style="font-weight: 400; margin-left: 0.5rem;"></span>
+                </label>
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="text" name="ollama_model" id="ollama_model"
+                           value="{{ config.ollama.model }}"
+                           placeholder="mistral:7b"
+                           style="flex: 1; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 4px; font-size: 0.9rem; background: var(--input-bg); color: var(--text); font-family: monospace;">
+                    <button type="button" id="refresh-models" class="btn btn-sm" style="background: #6c757d; white-space: nowrap;">Refresh Models</button>
+                </div>
+                <div id="model-picker" style="margin-top: 0.5rem; display: {% if ollama_models %}block{% else %}none{% endif %};">
+                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.4rem;">Available models — click to select:</p>
+                    <div id="model-list" style="display: flex; flex-wrap: wrap; gap: 0.4rem;">
+                        {% for m in ollama_models %}
+                        <button type="button" class="model-chip" data-model="{{ m }}"
+                                style="padding: 0.25rem 0.6rem; border-radius: 12px; border: 1px solid var(--border); background: {% if m == config.ollama.model %}var(--primary){% else %}var(--tag-bg){% endif %}; color: {% if m == config.ollama.model %}white{% else %}var(--text){% endif %}; cursor: pointer; font-size: 0.8rem; font-family: monospace;">
+                            {{ m }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% if not ollama_models %}
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem;">Could not reach Ollama. Type a model name manually or click Refresh Models.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Score Threshold</h3>
+        <p class="text-muted" style="margin-bottom: 0.75rem; font-size: 0.9rem;">
+            Files scoring below this value are skipped and never sent to the LLM.
+            Lower = analyze more files (slower). Higher = most relevant only (faster). Default: 35.
+        </p>
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <input type="number" name="score_threshold" value="{{ current_threshold }}" min="0" max="100"
+                   style="width: 100px; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 4px; font-size: 1rem; background: var(--input-bg); color: var(--text);">
+            <span class="text-muted" style="font-size: 0.85rem;">Current: <strong>{{ current_threshold }}</strong></span>
+        </div>
+    </div>
+
+    <div style="display: flex; gap: 1rem; align-items: center;">
+        <button type="submit" class="btn" style="padding: 0.6rem 1.5rem; font-size: 1rem;">Save Settings</button>
+        <span class="text-muted" style="font-size: 0.85rem;">Changes take effect on the next crawl. Stop and restart a running crawl to apply immediately.</span>
+    </div>
+
+</form>
+
+<div class="card" style="margin-top: 2rem;">
+    <h3>Current config.yaml values</h3>
+    <dl class="meta-grid" style="font-size: 0.85rem;">
+        <dt>root_path</dt><dd><code>{{ config.crawl.root_path }}</code></dd>
+        <dt>ollama endpoint</dt><dd><code>{{ config.ollama.endpoint }}</code></dd>
+        <dt>ollama model</dt><dd><code>{{ config.ollama.model }}</code></dd>
+        <dt>batch_size</dt><dd><code>{{ config.crawl.batch_size }}</code></dd>
+        <dt>score threshold</dt><dd><code>{{ current_threshold }}</code></dd>
+    </dl>
+</div>
+
+<script>
+// Model chip selection
+function bindChips() {
+    document.querySelectorAll('.model-chip').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var model = this.getAttribute('data-model');
+            document.getElementById('ollama_model').value = model;
+            document.querySelectorAll('.model-chip').forEach(function(c) {
+                c.style.background = 'var(--tag-bg)';
+                c.style.color = 'var(--text)';
+            });
+            this.style.background = 'var(--primary)';
+            this.style.color = 'white';
+        });
+    });
+}
+bindChips();
+
+// Refresh Ollama model list
+document.getElementById('refresh-models').addEventListener('click', function() {
+    var btn = this;
+    var statusEl = document.getElementById('model-status');
+    btn.textContent = 'Loading...';
+    btn.disabled = true;
+    statusEl.textContent = '';
+    fetch('/api/ollama/models')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            btn.textContent = 'Refresh Models';
+            btn.disabled = false;
+            var models = data.models || [];
+            if (models.length === 0) {
+                statusEl.style.color = 'var(--danger)';
+                statusEl.textContent = '— Ollama not reachable';
+                return;
+            }
+            statusEl.style.color = 'var(--success)';
+            statusEl.textContent = '— ' + models.length + ' model(s) found';
+            var current = document.getElementById('ollama_model').value;
+            var listEl = document.getElementById('model-list');
+            listEl.innerHTML = '';
+            models.forEach(function(m) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'model-chip';
+                b.setAttribute('data-model', m);
+                b.textContent = m;
+                b.style.cssText = 'padding:0.25rem 0.6rem;border-radius:12px;border:1px solid var(--border);cursor:pointer;font-size:0.8rem;font-family:monospace;';
+                b.style.background = (m === current) ? 'var(--primary)' : 'var(--tag-bg)';
+                b.style.color = (m === current) ? 'white' : 'var(--text)';
+                listEl.appendChild(b);
+            });
+            document.getElementById('model-picker').style.display = 'block';
+            bindChips();
+        })
+        .catch(function() {
+            btn.textContent = 'Refresh Models';
+            btn.disabled = false;
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = '— request failed';
+        });
+});
+
+// Folder browser
+var fbCurrentPath = '';
+var fbParentPath = null;
+
+function fbLoad(path) {
+    var listEl = document.getElementById('fb-list');
+    var pathEl = document.getElementById('fb-current-path');
+    var upBtn = document.getElementById('fb-up');
+    listEl.innerHTML = '<div class="text-muted" style="padding:1rem;text-align:center;font-size:0.9rem;">Loading...</div>';
+    var url = '/api/browse-dirs' + (path ? '?path=' + encodeURIComponent(path) : '');
+    fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                listEl.innerHTML = '<div style="padding:1rem;color:var(--danger);font-size:0.85rem;">' + data.error + '</div>';
+                return;
+            }
+            fbCurrentPath = data.path || '';
+            fbParentPath = data.parent || null;
+            pathEl.textContent = fbCurrentPath || 'Computer';
+            upBtn.disabled = !fbParentPath;
+            if (data.dirs.length === 0) {
+                listEl.innerHTML = '<div class="text-muted" style="padding:1rem;text-align:center;font-size:0.85rem;">No subfolders</div>';
+                return;
+            }
+            listEl.innerHTML = '';
+            data.dirs.forEach(function(d) {
+                var row = document.createElement('div');
+                row.style.cssText = 'padding:0.4rem 0.75rem;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid var(--border);';
+                var label = document.createElement('span');
+                label.style.fontFamily = 'monospace';
+                label.textContent = d.name;
+                row.appendChild(label);
+                row.addEventListener('mouseenter', function() { this.style.background = 'var(--hover-row)'; });
+                row.addEventListener('mouseleave', function() { this.style.background = ''; });
+                row.addEventListener('click', function() { fbLoad(d.path); });
+                listEl.appendChild(row);
+            });
+        })
+        .catch(function(e) {
+            listEl.innerHTML = '<div style="padding:1rem;color:var(--danger);font-size:0.85rem;">Error: ' + e + '</div>';
+        });
+}
+
+document.getElementById('toggle-browser').addEventListener('click', function() {
+    var panel = document.getElementById('folder-browser');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        this.textContent = 'Hide Browser';
+        var startPath = document.getElementById('root_path').value.trim() || '';
+        fbLoad(startPath);
+    } else {
+        panel.style.display = 'none';
+        this.textContent = 'Browse...';
+    }
+});
+
+document.getElementById('fb-up').addEventListener('click', function() {
+    fbLoad(fbParentPath || '');
+});
+
+document.getElementById('fb-select').addEventListener('click', function() {
+    if (fbCurrentPath) {
+        document.getElementById('root_path').value = fbCurrentPath;
+        document.getElementById('folder-browser').style.display = 'none';
+        document.getElementById('toggle-browser').textContent = 'Browse...';
+    }
+});
+</script>
+{% endblock %}

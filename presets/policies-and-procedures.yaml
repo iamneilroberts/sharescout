@@ -1,0 +1,100 @@
+name: policies-and-procedures
+description: "Optimized for corporate document collections — policies, procedures, forms, handbooks"
+
+scoring_rules:
+  extensions:
+    - extensions: [".docx", ".pdf", ".xlsx", ".pptx"]
+      score: 60
+    - extensions: [".doc", ".xls"]
+      score: 50
+    - extensions: [".md", ".txt", ".rtf"]
+      score: 40
+    - extensions: [".html", ".htm"]
+      score: 20
+  path_rules:
+    - pattern: "*/policies/*"
+      score: 25
+    - pattern: "*/procedures/*"
+      score: 25
+    - pattern: "*/forms/*"
+      score: 20
+    - pattern: "*/handbooks/*"
+      score: 20
+    - pattern: "*/compliance/*"
+      score: 20
+    - pattern: "*/templates/*"
+      score: 15
+    - pattern: "*/training/*"
+      score: 15
+    - pattern: "*/archive/*"
+      score: -20
+    - pattern: "*/drafts/*"
+      score: -10
+  score_threshold: 30
+
+prompts:
+  analysis: |
+    You are cataloging a corporate document library. Analyze this document excerpt and extract:
+    - Document type (policy, procedure, form, regulation, handbook section, etc.)
+    - Subject area and specific topics covered
+    - Effective dates, revision numbers, or version indicators
+    - Referenced regulations, standards, or other documents
+    - Key requirements, rules, or action items defined
+    - Target audience or applicable departments
+
+    Rules for the summary:
+    - {summary_length}. Never start with "This document". Start with the subject.
+    - Be SPECIFIC about what the document requires or defines
+    - Include document identifiers, revision dates, and applicable scope
+
+    {context_block}
+    File: {filename}
+    Path: {path}
+    Extension: {extension}
+    Size: {size_bytes} bytes
+
+    Text excerpt:
+    ---
+    {text_sample}
+    ---
+
+    Respond in this exact JSON format (no other text):
+    {{"summary": "...", "keywords": ["...", "..."], "category": "..."}}
+
+    Keywords: 3-7 specific terms. Include: document identifiers, subject areas, referenced standards.
+
+    Category (pick one): {categories}
+
+extraction:
+  xlsx_max_rows_per_sheet: 100
+  pptx_max_slides: 30
+
+analysis:
+  summary_sentences_short: "3-5 sentences"
+  summary_sentences_medium: "8-15 sentences"
+  summary_sentences_long: "20-30 sentences"
+  max_chunks: 15
+
+llm:
+  vision_model: null
+  vision_provider: "ollama"
+
+skip_dirs:
+  - "archive"
+  - "old"
+  - "deprecated"
+
+categories:
+  - "Policy"
+  - "Procedure"
+  - "Form"
+  - "Regulation"
+  - "Handbook"
+  - "Training Material"
+  - "Template"
+  - "Standard"
+  - "Guideline"
+  - "Report"
+  - "Meeting Minutes"
+  - "Correspondence"
+  - "Other"

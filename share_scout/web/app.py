@@ -265,6 +265,26 @@ def create_app(config: dict) -> Flask:
         finally:
             cat.close()
 
+    @app.route("/api/reset-stats", methods=["POST"])
+    def api_reset_stats():
+        """Reset throughput stats — only count analyses from now on."""
+        cat = get_catalog()
+        try:
+            cat.reset_stats()
+            return jsonify({"ok": True, "message": "Stats reset. Throughput will recalculate from new analyses."})
+        finally:
+            cat.close()
+
+    @app.route("/api/clear-stats-reset", methods=["POST"])
+    def api_clear_stats_reset():
+        """Clear stats reset — show all-time stats again."""
+        cat = get_catalog()
+        try:
+            cat.clear_stats_reset()
+            return jsonify({"ok": True, "message": "Showing all-time stats."})
+        finally:
+            cat.close()
+
     @app.route("/crawl/log")
     def crawl_log():
         """Return last N lines of crawl log."""
@@ -488,4 +508,153 @@ def create_app(config: dict) -> Flask:
         finally:
             cat.close()
 
+    # -- Settings --
+
+    @app.route("/settings", methods=["GET", "POST"])
+    def settings():
+        import yaml
+        project_root = config.get("_project_root", os.getcwd())
+        config_path = os.path.join(project_root, "config.yaml")
+        rules_path = os.path.join(project_root, "scoring_rules.yaml")
+
+        error = None
+        success = None
+
+        if request.method == "POST":
+            try:
+                with open(config_path) as f:
+                    disk_config = yaml.safe_load(f) or {}
+
+                root_path = request.form.get("root_path", "").strip()
+                ollama_endpoint = request.form.get("ollama_endpoint", "").strip()
+                ollama_model = request.form.get("ollama_model", "").strip()
+                score_threshold = request.form.get("score_threshold", "").strip()
+
+                if root_path:
+                    disk_config.setdefault("crawl", {})["root_path"] = root_path.replace("\\", "/")
+                if ollama_endpoint:
+                    disk_config.setdefault("ollama", {})["endpoint"] = ollama_endpoint
+                if ollama_model:
+                    disk_config.setdefault("ollama", {})["model"] = ollama_model
+
+                with open(config_path, "w") as f:
+                    yaml.dump(disk_config, f, default_flow_style=False, allow_unicode=True)
+
+                if score_threshold:
+                    try:
+                        threshold_val = int(score_threshold)
+                        with open(rules_path) as f:
+                            rules_raw = f.read()
+                        import re as _re
+                        rules_raw = _re.sub(
+                            r'^score_threshold:\s*\d+',
+                            f'score_threshold: {threshold_val}',
+                            rules_raw, flags=_re.MULTILINE
+                        )
+                        with open(rules_path, "w") as f:
+                            f.write(rules_raw)
+                    except Exception as e:
+                        error = f"Saved config.yaml but could not update score threshold: {e}"
+
+                if root_path:
+                    config["crawl"]["root_path"] = root_path.replace("\\", "/")
+                if ollama_endpoint:
+                    config.setdefault("ollama", {})["endpoint"] = ollama_endpoint
+                if ollama_model:
+                    config.setdefault("ollama", {})["model"] = ollama_model
+
+                if not error:
+                    success = "Settings saved. Changes take effect on next crawl."
+
+            except Exception as e:
+                error = f"Failed to save settings: {e}"
+
+        from ..config import load_scoring_rules
+        try:
+            rules = load_scoring_rules(rules_path)
+            current_threshold = rules.get("score_threshold", 35)
+        except Exception:
+            current_threshold = 35
+
+        ollama_models = _list_ollama_models(config)
+
+        return render_template(
+            "settings.html",
+            config=config,
+            current_threshold=current_threshold,
+            ollama_models=ollama_models,
+            error=error,
+            success=success,
+        )
+
+    @app.route("/api/ollama/models")
+    def api_ollama_models():
+        """Return list of locally available Ollama models as JSON."""
+        models = _list_ollama_models(config)
+        return jsonify({"models": models})
+
+    @app.route("/api/browse-dirs")
+    def api_browse_dirs():
+        """Return subdirectories of a given path for the folder picker."""
+        path = request.args.get("path", "").strip()
+
+        if not path:
+            if sys.platform == "win32":
+                import string
+                drives = []
+                for letter in string.ascii_uppercase:
+                    drive = f"{letter}:/"
+                    if os.path.exists(drive):
+                        drives.append({"name": f"{letter}:", "path": drive, "sep": "/"})
+                return jsonify({"path": "", "parent": None, "dirs": drives})
+            else:
+                path = "/"
+
+        path = path.replace("\\", "/")
+        norm = os.path.normpath(path)
+
+        if not os.path.isdir(norm):
+            return jsonify({"error": f"Not a directory: {path}"}), 400
+
+        parent = None
+        parent_raw = os.path.dirname(norm)
+        if parent_raw and parent_raw != norm:
+            parent = parent_raw.replace("\\", "/")
+
+        skip = {"$recycle.bin", "system volume information", "windows",
+                "program files", "program files (x86)", "programdata"}
+        dirs = []
+        try:
+            for entry in sorted(os.scandir(norm), key=lambda e: e.name.lower()):
+                if not entry.is_dir(follow_symlinks=False):
+                    continue
+                if entry.name.startswith("."):
+                    continue
+                if entry.name.lower() in skip:
+                    continue
+                dirs.append({
+                    "name": entry.name,
+                    "path": entry.path.replace("\\", "/"),
+                })
+        except PermissionError:
+            pass
+
+        return jsonify({
+            "path": norm.replace("\\", "/"),
+            "parent": parent,
+            "dirs": dirs,
+        })
+
     return app
+
+
+def _list_ollama_models(config: dict) -> list:
+    """Fetch list of available models from Ollama /api/tags."""
+    endpoint = config.get("ollama", {}).get("endpoint", "http://localhost:11434")
+    try:
+        req = urllib.request.Request(f"{endpoint}/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json_module.loads(resp.read())
+            return [m["name"] for m in data.get("models", [])]
+    except Exception:
+        return []

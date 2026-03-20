@@ -2,12 +2,14 @@
 
 import logging
 import sys
+from collections import Counter
 
+from .analyzer import analyze_file
 from .catalog import Catalog
 from .checkpoint import CheckpointManager
 from .config import load_config, load_scoring_rules, apply_cli_overrides, get_llm_provider
 from .extractor import extract_text, compute_partial_hash
-from .llm_client import analyze, check_llm
+from .llm_client import check_llm, detect_context_budget
 from .scanner import scan_files
 from .scorer import Scorer
 
@@ -17,13 +19,14 @@ logger = logging.getLogger(__name__)
 def run_crawl(config: dict, rules: dict, dry_run: bool = False):
     """Run the full crawl pipeline in two phases:
     Phase 1: Walk + score + extract all files (fast, no LLM)
-    Phase 2: LLM-analyze extracted files in priority order
+    Phase 2: LLM-analyze extracted files in priority order (adaptive strategy)
     """
     crawl_cfg = config["crawl"]
     root_path = crawl_cfg["root_path"]
     batch_size = crawl_cfg["batch_size"]
     max_chars = crawl_cfg["text_sample_max_chars"]
     hash_bytes = crawl_cfg["hash_bytes"]
+    verbose = config.get("verbose", False)
 
     scorer = Scorer(rules)
 
@@ -100,7 +103,7 @@ def run_crawl(config: dict, rules: dict, dry_run: bool = False):
                 total_scanned, total_new, total_extracted, total_skipped,
             )
 
-            # ── Phase 2: LLM Analysis (slow, priority order) ──
+            # ── Phase 2: LLM Analysis (adaptive strategy) ──
             llm_available = check_llm(config)
             if not llm_available:
                 logger.warning(
@@ -112,12 +115,20 @@ def run_crawl(config: dict, rules: dict, dry_run: bool = False):
 
             provider = get_llm_provider(config)
             model_name = config.get(provider, {}).get("model", "unknown") if provider != "none" else "none"
+
+            # Detect context budget once for the crawl
+            context_budget = detect_context_budget(config)
+            seen_image_hashes = Counter()
+
             logger.info(
-                "Phase 2: LLM analysis (model: %s). Analyzing extracted files by score...",
-                model_name,
+                "Phase 2: LLM analysis (model: %s, context budget: %d chars). "
+                "Analyzing extracted files by score...",
+                model_name, context_budget,
             )
 
             total_analyzed = 0
+            strategy_counts = Counter()
+
             while True:
                 # Fetch next batch of extracted files, highest score first
                 pending = catalog.get_pending_files(limit=10)
@@ -125,34 +136,34 @@ def run_crawl(config: dict, rules: dict, dry_run: bool = False):
                     break
 
                 for file_row in pending:
-                    # Re-extract text (not stored in files table)
-                    text = extract_text(file_row["path"], max_chars=max_chars)
-                    if not text:
-                        catalog.upsert_file({**file_row, "status": "skipped", "skip_reason": "no text extracted"})
-                        catalog.commit()
-                        continue
-
-                    # Fetch similar files for context
-                    similar = catalog.get_similar_files(file_row["filename"])
-
-                    analysis = analyze(
-                        file_row, text, config,
-                        similar_context=similar if similar else None,
+                    analysis = analyze_file(
+                        file_row, config, catalog,
+                        context_budget, seen_image_hashes, verbose,
                     )
 
                     if analysis:
+                        # Extract the text sample for storage
+                        text_sample = analysis.pop("_text_sample", "")
+
                         catalog.insert_analysis(
                             file_row["id"],
-                            text_sample=text,
+                            text_sample=text_sample,
                             summary=analysis["summary"],
                             keywords=analysis["keywords"],
                             category=analysis["category"],
                             llm_stats=analysis.get("llm_stats"),
+                            processing_strategy=analysis.get("processing_strategy"),
+                            image_captions=analysis.get("image_captions"),
+                            chunk_count=analysis.get("chunk_count"),
+                            total_chars_extracted=analysis.get("total_chars_extracted"),
+                            context_budget_used=analysis.get("context_budget_used"),
                         )
                         catalog.upsert_file({**file_row, "status": "analyzed"})
                         total_analyzed += 1
+                        strategy = analysis.get("processing_strategy", "unknown")
+                        strategy_counts[strategy] += 1
                     else:
-                        # LLM failed — mark as extracted so we retry later
+                        # Analysis failed — mark as extracted so we retry later
                         catalog.upsert_file({**file_row, "status": "extracted"})
 
                     catalog.commit()
@@ -163,8 +174,10 @@ def run_crawl(config: dict, rules: dict, dry_run: bool = False):
                             "SELECT COUNT(*) as cnt FROM files WHERE status = 'extracted'"
                         ).fetchone()["cnt"]
                         logger.info(
-                            "Phase 2: %d analyzed, %d remaining",
-                            total_analyzed, remaining,
+                            "Phase 2: %d analyzed (%s), %d remaining",
+                            total_analyzed,
+                            ", ".join(f"{k}={v}" for k, v in strategy_counts.items()),
+                            remaining,
                         )
 
             ckpt.complete()
@@ -173,7 +186,11 @@ def run_crawl(config: dict, rules: dict, dry_run: bool = False):
             logger.info("Crawl interrupted — progress saved. Resume by running again.")
             sys.exit(0)
 
-    logger.info("Crawl complete: %d analyzed total", total_analyzed)
+    logger.info(
+        "Crawl complete: %d analyzed total (%s)",
+        total_analyzed,
+        ", ".join(f"{k}={v}" for k, v in strategy_counts.items()),
+    )
 
 
 def _commit_batch(catalog: Catalog, batch: list):

@@ -1,0 +1,53 @@
+name: general
+description: "Balanced default preset — current ShareScout behavior extracted into a preset"
+
+scoring_rules:
+  extensions:
+    - extensions: [".md", ".mdx", ".rst", ".txt", ".adoc"]
+      score: 50
+    - extensions: [".docx", ".pdf", ".pptx", ".doc", ".xls", ".xlsx"]
+      score: 40
+    - extensions: [".yaml", ".yml", ".toml", ".csv"]
+      score: 20
+    - extensions: [".html", ".htm"]
+      score: 15
+    - extensions: [".json"]
+      score: 5
+    - extensions: [".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".rb", ".sql", ".css"]
+      score: 5
+  path_rules: []
+  score_threshold: 35
+
+prompts: {}
+
+extraction:
+  xlsx_max_rows_per_sheet: 50
+  pptx_max_slides: 20
+
+analysis:
+  summary_sentences_short: "2-3 sentences"
+  summary_sentences_medium: "5-10 sentences"
+  summary_sentences_long: "15-30 sentences"
+  max_chunks: 10
+
+llm:
+  vision_model: null
+  vision_provider: "ollama"
+
+skip_dirs: []
+
+categories:
+  - "Feature Spec"
+  - "Architecture"
+  - "Session Handoff"
+  - "README/Setup"
+  - "Configuration"
+  - "API/Integration"
+  - "Database"
+  - "Testing"
+  - "Deployment"
+  - "User Guide"
+  - "Development Journal"
+  - "Code"
+  - "Data"
+  - "Other"

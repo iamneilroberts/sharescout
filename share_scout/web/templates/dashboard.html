@@ -172,7 +172,16 @@
 {# ── LLM Throughput ── #}
 {% if rate.total_analyses > 0 %}
 <div class="card" style="margin-bottom: 1rem;">
-    <h3>LLM Analysis Throughput</h3>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0;">LLM Analysis Throughput</h3>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+            {% if rate.stats_reset_at %}
+            <span class="text-muted" style="font-size: 0.75rem;">Since {{ rate.stats_reset_at[:19] }}</span>
+            <button id="btn-clear-reset" class="btn btn-sm" style="background: #6c757d; font-size: 0.75rem; padding: 0.2rem 0.6rem;">Show All-Time</button>
+            {% endif %}
+            <button id="btn-reset-stats" class="btn btn-sm" style="background: #dc3545; font-size: 0.75rem; padding: 0.2rem 0.6rem;">Reset Stats</button>
+        </div>
+    </div>
     <div class="stats-grid" style="margin-bottom: 0;">
         <div class="stat-card" style="margin-bottom: 0;">
             <div class="value" style="font-size: 1.3rem;">{{ rate.per_minute }}</div>
@@ -472,6 +481,29 @@
             window.location.reload();
         }
     }, 1000);
+
+    // Reset Stats button
+    var resetBtn = document.getElementById('btn-reset-stats');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', function() {
+            if (!confirm('Reset throughput stats? ETA and rates will recalculate from new analyses only.')) return;
+            fetch('/api/reset-stats', {method: 'POST'})
+                .then(function(r) { return r.json(); })
+                .then(function() { window.location.reload(); })
+                .catch(function(e) { alert('Failed: ' + e); });
+        });
+    }
+
+    // Show All-Time button (clear reset)
+    var clearBtn = document.getElementById('btn-clear-reset');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function() {
+            fetch('/api/clear-stats-reset', {method: 'POST'})
+                .then(function(r) { return r.json(); })
+                .then(function() { window.location.reload(); })
+                .catch(function(e) { alert('Failed: ' + e); });
+        });
+    }
 })();
 </script>
 {% endblock %}

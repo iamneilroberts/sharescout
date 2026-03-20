@@ -24,6 +24,7 @@
             <a href="{{ url_for('tags') }}" class="{{ 'active' if request.endpoint == 'tags' }}">Tags</a>
             <a href="{{ url_for('timeline') }}" class="{{ 'active' if request.endpoint == 'timeline' }}">Timeline</a>
             <a href="{{ url_for('insights') }}" class="{{ 'active' if request.endpoint == 'insights' }}">Insights</a>
+            <a href="{{ url_for('settings') }}" class="{{ 'active' if request.endpoint == 'settings' }}">Settings</a>
             <span id="nav-crawl-status" style="font-size: 0.75rem; color: #adb5bd; margin-left: auto;"></span>
             <button class="theme-toggle" id="theme-toggle" title="Toggle light/dark theme">Light</button>
         </div>

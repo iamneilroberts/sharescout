@@ -1,0 +1,102 @@
+name: scripts-collection
+description: "Optimized for script libraries — PowerShell, Bash, Python, batch files"
+
+scoring_rules:
+  extensions:
+    - extensions: [".ps1", ".psm1", ".psd1"]
+      score: 55
+    - extensions: [".sh", ".bash"]
+      score: 55
+    - extensions: [".bat", ".cmd"]
+      score: 50
+    - extensions: [".py"]
+      score: 50
+    - extensions: [".vbs"]
+      score: 40
+    - extensions: [".rb"]
+      score: 40
+    - extensions: [".md", ".txt"]
+      score: 45
+    - extensions: [".yaml", ".yml", ".toml", ".json"]
+      score: 25
+    - extensions: [".xml"]
+      score: 20
+  path_rules:
+    - pattern: "*/scripts/*"
+      score: 20
+    - pattern: "*/tools/*"
+      score: 20
+    - pattern: "*/automation/*"
+      score: 25
+    - pattern: "*/deploy/*"
+      score: 15
+    - pattern: "*/build/*"
+      score: 15
+    - pattern: "*/utils/*"
+      score: 15
+  score_threshold: 30
+
+prompts:
+  analysis: |
+    You are cataloging a script/automation library. Analyze this script and extract:
+    - What the script does (primary function and secondary functions)
+    - Input parameters and expected arguments
+    - External systems or services it interacts with (APIs, databases, file shares, etc.)
+    - Key function/cmdlet names defined
+    - Dependencies (modules, packages, external tools required)
+    - Whether it's meant for interactive use or scheduled/automated execution
+
+    Rules for the summary:
+    - {summary_length}. Never start with "This script". Start with the action verb.
+    - Be SPECIFIC about what the script automates and what systems it touches
+    - Mention parameter names and function names
+
+    {context_block}
+    File: {filename}
+    Path: {path}
+    Extension: {extension}
+    Size: {size_bytes} bytes
+
+    Text excerpt:
+    ---
+    {text_sample}
+    ---
+
+    Respond in this exact JSON format (no other text):
+    {{"summary": "...", "keywords": ["...", "..."], "category": "..."}}
+
+    Keywords: 3-7 specific terms. Include: function names, technologies, external systems, script purpose.
+
+    Category (pick one): {categories}
+
+extraction:
+  xlsx_max_rows_per_sheet: 50
+  pptx_max_slides: 10
+
+analysis:
+  summary_sentences_short: "2-4 sentences"
+  summary_sentences_medium: "5-10 sentences"
+  summary_sentences_long: "10-20 sentences"
+  max_chunks: 8
+
+llm:
+  vision_model: null
+  vision_provider: "ollama"
+
+skip_dirs:
+  - "output"
+  - "logs"
+  - "temp"
+
+categories:
+  - "Utility"
+  - "Automation"
+  - "Build"
+  - "Deployment"
+  - "Monitoring"
+  - "Data Processing"
+  - "System Admin"
+  - "Configuration"
+  - "Testing"
+  - "Documentation"
+  - "Other"

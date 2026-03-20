@@ -33,12 +33,25 @@ def main():
     crawl_parser.add_argument("--openai-base-url", help="OpenAI-compatible API base URL")
     crawl_parser.add_argument("--openai-model", help="OpenAI-compatible model name")
     crawl_parser.add_argument("--openai-api-key-env", help="Env var name containing API key (default: OPENAI_API_KEY)")
+    crawl_parser.add_argument("--domain", help="Domain preset name (e.g., general, policies-and-procedures, developer-workspace, scripts-collection)")
+    crawl_parser.add_argument("--max-context-tokens", type=int, help="Override LLM context window size in tokens")
 
     # web subcommand
     web_parser = sub.add_parser("web", help="Start the web UI")
     web_parser.add_argument("--host", help="Web server host")
     web_parser.add_argument("--port", type=int, help="Web server port")
     web_parser.add_argument("--db-path", help="SQLite database path")
+
+    # claude-proxy subcommand
+    proxy_parser = sub.add_parser(
+        "claude-proxy",
+        help="Start an Ollama-compatible proxy that uses Claude Code CLI for inference",
+    )
+    proxy_parser.add_argument("--port", type=int, default=11435, help="Port to listen on (default: 11435)")
+    proxy_parser.add_argument(
+        "--claude-model", default="haiku",
+        help="Claude model to use (default: haiku — cheapest, appropriate for simulating 7B)",
+    )
 
     args = parser.parse_args()
 
@@ -53,7 +66,6 @@ def main():
     config = load_config(args.config)
 
     if args.command == "crawl":
-        rules = load_scoring_rules(args.rules)
         config = apply_cli_overrides(
             config,
             root_path=args.root_path,
@@ -64,7 +76,11 @@ def main():
             openai_base_url=args.openai_base_url,
             openai_model=args.openai_model,
             openai_api_key_env=args.openai_api_key_env,
+            domain=getattr(args, "domain", None),
+            max_context_tokens=getattr(args, "max_context_tokens", None),
+            verbose=args.verbose,
         )
+        rules = load_scoring_rules(args.rules, config=config)
         from .pipeline import run_crawl
         run_crawl(config, rules, dry_run=args.dry_run)
 
@@ -81,6 +97,14 @@ def main():
             host=config["web"]["host"],
             port=config["web"]["port"],
             debug=True,
+        )
+
+    elif args.command == "claude-proxy":
+        from .claude_proxy import run_proxy
+        run_proxy(
+            port=args.port,
+            claude_model=args.claude_model,
+            verbose=args.verbose,
         )
 
 

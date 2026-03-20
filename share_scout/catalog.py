@@ -105,7 +105,48 @@ class Catalog:
     def init_schema(self):
         self._conn.executescript(SCHEMA_SQL)
         self._conn.executescript(FTS_SCHEMA_SQL)
+        self._migrate_schema()
         self._conn.commit()
+
+    def _migrate_schema(self):
+        """Add new tables and columns for adaptive sampling (additive only)."""
+        # settings key-value table
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+
+        # chunk_summaries table
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS chunk_summaries (
+                id INTEGER PRIMARY KEY,
+                file_id INTEGER REFERENCES files(id),
+                chunk_index INTEGER NOT NULL,
+                chunk_text TEXT,
+                chunk_summary TEXT,
+                llm_stats TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chunks_file_id ON chunk_summaries(file_id)"
+        )
+
+        # New nullable columns on analyses — try/except since SQLite lacks IF NOT EXISTS for columns
+        new_columns = [
+            ("processing_strategy", "TEXT"),
+            ("image_captions", "TEXT"),
+            ("chunk_count", "INTEGER"),
+            ("total_chars_extracted", "INTEGER"),
+            ("context_budget_used", "INTEGER"),
+        ]
+        for col_name, col_type in new_columns:
+            try:
+                self._conn.execute(f"ALTER TABLE analyses ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     # -- Crawl runs --
 
@@ -199,16 +240,59 @@ class Catalog:
     # -- Analyses --
 
     def insert_analysis(self, file_id: int, text_sample: str, summary: str,
-                        keywords: list[str], category: str, llm_stats: dict = None):
+                        keywords: list[str], category: str, llm_stats: dict = None,
+                        processing_strategy: str = None, image_captions: list = None,
+                        chunk_count: int = None, total_chars_extracted: int = None,
+                        context_budget_used: int = None):
         # Delete existing analysis for this file (re-crawl)
         self._conn.execute("DELETE FROM analyses WHERE file_id = ?", (file_id,))
         self._conn.execute(
-            """INSERT INTO analyses (file_id, text_sample, summary, keywords, category, llm_stats, analyzed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO analyses (file_id, text_sample, summary, keywords, category,
+                                    llm_stats, analyzed_at, processing_strategy, image_captions,
+                                    chunk_count, total_chars_extracted, context_budget_used)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (file_id, text_sample, summary, json.dumps(keywords), category,
              json.dumps(llm_stats) if llm_stats else None,
-             datetime.now().isoformat()),
+             datetime.now().isoformat(),
+             processing_strategy,
+             json.dumps(image_captions) if image_captions else None,
+             chunk_count,
+             total_chars_extracted,
+             context_budget_used),
         )
+
+    # -- Chunk summaries --
+
+    def insert_chunk_summary(self, file_id: int, chunk_index: int,
+                             chunk_text: str, chunk_summary: str,
+                             llm_stats: dict = None):
+        """Insert a single chunk summary for a file."""
+        self._conn.execute(
+            """INSERT INTO chunk_summaries (file_id, chunk_index, chunk_text, chunk_summary, llm_stats)
+               VALUES (?, ?, ?, ?, ?)""",
+            (file_id, chunk_index, chunk_text, chunk_summary,
+             json.dumps(llm_stats) if llm_stats else None),
+        )
+
+    def get_chunk_summaries(self, file_id: int) -> list[dict]:
+        """Get all chunk summaries for a file, ordered by chunk_index."""
+        rows = self._conn.execute(
+            "SELECT * FROM chunk_summaries WHERE file_id = ? ORDER BY chunk_index",
+            (file_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_chunk_summaries(self, file_id: int):
+        """Delete all chunk summaries for a file (for re-processing)."""
+        self._conn.execute("DELETE FROM chunk_summaries WHERE file_id = ?", (file_id,))
+
+    def get_completed_chunk_indices(self, file_id: int) -> set[int]:
+        """Get set of chunk indices already processed for resume support."""
+        rows = self._conn.execute(
+            "SELECT chunk_index FROM chunk_summaries WHERE file_id = ? AND chunk_summary IS NOT NULL",
+            (file_id,),
+        ).fetchall()
+        return {r["chunk_index"] for r in rows}
 
     def get_analysis(self, file_id: int) -> dict | None:
         row = self._conn.execute(
@@ -297,24 +381,67 @@ class Catalog:
                 s["skipped"] += 1
         return sorted(stats.values(), key=lambda x: -x["total"])
 
+    # -- Settings --
+
+    def get_setting(self, key: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT value FROM settings WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
+
+    def set_setting(self, key: str, value: str):
+        self._conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        self._conn.commit()
+
+    def delete_setting(self, key: str):
+        self._conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+        self._conn.commit()
+
+    def reset_stats(self):
+        """Set a stats reset point at the current time."""
+        self.set_setting("stats_reset_at", datetime.now().isoformat())
+
+    def clear_stats_reset(self):
+        """Remove the stats reset point (show all-time stats)."""
+        self.delete_setting("stats_reset_at")
+
     def get_analysis_rate(self) -> dict:
-        """Get analysis throughput stats including LLM token/timing aggregates."""
+        """Get analysis throughput stats including LLM token/timing aggregates.
+
+        If a stats_reset_at setting exists, only counts analyses after that time.
+        """
         rate = {"per_minute": 0, "avg_seconds": 0, "total_analyses": 0,
                 "first_at": None, "last_at": None,
                 "total_tokens": 0, "total_prompt_tokens": 0,
                 "total_eval_ms": 0, "total_llm_ms": 0,
-                "avg_tokens_per_file": 0, "tokens_per_second": 0}
-        row = self._conn.execute("SELECT COUNT(*) as cnt FROM analyses").fetchone()
+                "avg_tokens_per_file": 0, "tokens_per_second": 0,
+                "stats_reset_at": None}
+
+        reset_at = self.get_setting("stats_reset_at")
+        rate["stats_reset_at"] = reset_at
+        since_clause = ""
+        since_params = ()
+        if reset_at:
+            since_clause = " WHERE analyzed_at >= ?"
+            since_params = (reset_at,)
+
+        row = self._conn.execute(
+            f"SELECT COUNT(*) as cnt FROM analyses{since_clause}", since_params
+        ).fetchone()
         rate["total_analyses"] = row["cnt"]
         if rate["total_analyses"] < 2:
             return rate
+
         row = self._conn.execute(
-            "SELECT MIN(analyzed_at) as first_at, MAX(analyzed_at) as last_at FROM analyses"
+            f"SELECT MIN(analyzed_at) as first_at, MAX(analyzed_at) as last_at FROM analyses{since_clause}",
+            since_params,
         ).fetchone()
         rate["first_at"] = row["first_at"]
         rate["last_at"] = row["last_at"]
         if row["first_at"] and row["last_at"]:
-            from datetime import datetime
             first = datetime.fromisoformat(row["first_at"])
             last = datetime.fromisoformat(row["last_at"])
             elapsed = (last - first).total_seconds()
@@ -332,8 +459,15 @@ class Catalog:
                 rate["eta_hours"] = hours_left
 
         # Aggregate LLM stats from analyses that have them
+        stats_where = "WHERE llm_stats IS NOT NULL"
+        if reset_at:
+            stats_where += " AND analyzed_at >= ?"
+            stats_params = (reset_at,)
+        else:
+            stats_params = ()
+
         rows = self._conn.execute(
-            "SELECT llm_stats FROM analyses WHERE llm_stats IS NOT NULL"
+            f"SELECT llm_stats FROM analyses {stats_where}", stats_params
         ).fetchall()
         total_eval_tokens = 0
         total_prompt_tokens = 0

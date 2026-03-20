@@ -1,5 +1,6 @@
 """LLM client for document summarization and categorization."""
 
+import base64
 import json
 import logging
 
@@ -7,48 +8,107 @@ import httpx
 import ollama
 
 from .config import get_llm_provider
+from .prompts import (
+    DEFAULT_ANALYSIS_PROMPT, get_prompt, get_categories, get_summary_length,
+)
 
 logger = logging.getLogger(__name__)
 
-ANALYSIS_PROMPT = """You are building a knowledge base catalog from a developer's projects. Your job: help the developer find specific features, decisions, and implementations across projects by writing summaries that surface WHAT MAKES EACH FILE UNIQUE.
+# Kept for backward compat — modules can still reference it
+ANALYSIS_PROMPT = DEFAULT_ANALYSIS_PROMPT
 
-Analyze the text excerpt thoroughly. Extract:
-- Specific feature names, API endpoints, database tables, or UI components mentioned
-- Technology choices and architectural decisions (what stack, what patterns, why)
-- Status: is this planned, in-progress, completed, or abandoned?
-- Key differences from similar files (see context below)
+# Cache for context budget (computed once per crawl)
+_context_budget_cache = {}
 
-Rules for the summary:
-- 2-3 sentences. Never start with "This document/file/README". Start with the subject.
-- Be SPECIFIC: mention actual feature names, tech, endpoints, table names — not generic descriptions
-- If context shows similar files exist, explicitly state what's DIFFERENT about this one
-- Good: "Booking flow implementation using Xata DB with multi-step wizard and Resend email confirmation. Differs from claude-travel-agent-v2 version by adding approval workflows and cancellation support."
-- Bad: "Feature specification for a booking system in the travel assistant project."
 
-{context_block}
-File: {filename}
-Path: {path}
-Extension: {extension}
-Size: {size_bytes} bytes
+def detect_context_budget(config: dict) -> int:
+    """Returns available chars for text content after prompt overhead.
 
-Text excerpt:
----
-{text_sample}
----
+    Checks (in order):
+    1. config crawl.max_context_tokens override
+    2. Ollama model info (context window from model metadata)
+    3. Default fallback (4096 tokens)
 
-Respond in this exact JSON format (no other text):
-{{"summary": "...", "keywords": ["...", "..."], "category": "..."}}
+    Returns character count (tokens * 3.5 chars/token approximation).
+    """
+    # Config override always wins
+    max_tokens = config.get("crawl", {}).get("max_context_tokens")
+    if max_tokens:
+        prompt_reserve = 800  # tokens for prompt template
+        response_reserve = 500  # tokens for JSON response
+        available = max_tokens - prompt_reserve - response_reserve
+        return int(max(available, 500) * 3.5)
 
-Keywords: 3-7 specific terms. Include: exact feature names, technologies, libraries, the project name.
+    provider = get_llm_provider(config)
 
-Category (pick one): "Feature Spec", "Architecture", "Session Handoff", "README/Setup", "Configuration", "API/Integration", "Database", "Testing", "Deployment", "User Guide", "Development Journal", "Code", "Data", "Other"."""
+    if provider == "ollama":
+        endpoint = config["ollama"]["endpoint"]
+        model = config["ollama"]["model"]
+        cache_key = f"{endpoint}:{model}"
+
+        if cache_key in _context_budget_cache:
+            return _context_budget_cache[cache_key]
+
+        try:
+            client = ollama.Client(host=endpoint, timeout=10)
+            info = client.show(model)
+
+            # Parse context window from model info
+            context_length = None
+
+            # Try modelinfo / model_info dict
+            model_info = info.get("model_info", {}) or info.get("modelinfo", {})
+            if model_info:
+                for key, value in model_info.items():
+                    if "context_length" in key.lower():
+                        context_length = int(value)
+                        break
+
+            # Try parameters string
+            if not context_length:
+                params = info.get("parameters", "")
+                if params and "num_ctx" in params:
+                    for line in params.split("\n"):
+                        if "num_ctx" in line:
+                            parts = line.strip().split()
+                            if len(parts) >= 2:
+                                try:
+                                    context_length = int(parts[-1])
+                                except ValueError:
+                                    pass
+                            break
+
+            if not context_length:
+                context_length = 4096  # conservative default
+
+            prompt_reserve = 800
+            response_reserve = 500
+            available = context_length - prompt_reserve - response_reserve
+            budget = int(max(available, 500) * 3.5)
+
+            _context_budget_cache[cache_key] = budget
+            logger.info(
+                "Context budget: model %s has %d token context → %d chars available",
+                model, context_length, budget,
+            )
+            return budget
+
+        except Exception as e:
+            logger.warning("Could not detect context window for %s: %s — using default", model, e)
+
+    # Default: assume 4096 token context
+    default_budget = int((4096 - 1300) * 3.5)
+    return default_budget
 
 
 def analyze_document(file_meta: dict, text_sample: str,
                      endpoint: str = "http://localhost:11434",
                      model: str = "llama3.2",
                      timeout: int = 120,
-                     similar_context: list[dict] = None) -> dict | None:
+                     similar_context: list[dict] = None,
+                     prompt_template: str = None,
+                     categories: str = None,
+                     summary_length: str = None) -> dict | None:
     """Send text sample + metadata to Ollama for analysis.
 
     Returns dict with keys: summary, keywords, category, llm_stats.
@@ -62,13 +122,20 @@ def analyze_document(file_meta: dict, text_sample: str,
             lines.append(f"  - [{ctx.get('project', '?')}] {ctx['path']}: {ctx['summary']}")
         context_block = "\n".join(lines) + "\n"
 
-    prompt = ANALYSIS_PROMPT.format(
+    template = prompt_template or ANALYSIS_PROMPT
+    from .prompts import DEFAULT_CATEGORIES
+    cats = categories or DEFAULT_CATEGORIES
+    length = summary_length or "2-3 sentences"
+
+    prompt = template.format(
         filename=file_meta.get("filename", ""),
         path=file_meta.get("path", ""),
         extension=file_meta.get("extension", ""),
         size_bytes=file_meta.get("size_bytes", 0),
-        text_sample=text_sample[:4000],
+        text_sample=text_sample,
         context_block=context_block,
+        summary_length=length,
+        categories=cats,
     )
 
     try:
@@ -79,21 +146,9 @@ def analyze_document(file_meta: dict, text_sample: str,
         )
 
         content = response["message"]["content"].strip()
-
-        # Try to extract JSON from the response
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0].strip()
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0].strip()
-
-        result = json.loads(content)
-
-        if not all(k in result for k in ("summary", "keywords", "category")):
-            logger.warning("LLM response missing expected keys: %s", content[:200])
+        result = _parse_json_response(content)
+        if not result:
             return None
-
-        if isinstance(result["keywords"], str):
-            result["keywords"] = [k.strip() for k in result["keywords"].split(",")]
 
         # Attach Ollama performance stats
         result["llm_stats"] = {
@@ -129,7 +184,10 @@ def analyze_document_openai(file_meta: dict, text_sample: str,
                              base_url: str, model: str,
                              api_key_env: str = "OPENAI_API_KEY",
                              timeout: int = 60,
-                             similar_context: list[dict] = None) -> dict | None:
+                             similar_context: list[dict] = None,
+                             prompt_template: str = None,
+                             categories: str = None,
+                             summary_length: str = None) -> dict | None:
     """Send text sample to an OpenAI-compatible API for analysis."""
     import os
     api_key = os.environ.get(api_key_env)
@@ -144,13 +202,20 @@ def analyze_document_openai(file_meta: dict, text_sample: str,
             lines.append(f"  - [{ctx.get('project', '?')}] {ctx['path']}: {ctx['summary']}")
         context_block = "\n".join(lines) + "\n"
 
-    prompt = ANALYSIS_PROMPT.format(
+    template = prompt_template or ANALYSIS_PROMPT
+    from .prompts import DEFAULT_CATEGORIES
+    cats = categories or DEFAULT_CATEGORIES
+    length = summary_length or "2-3 sentences"
+
+    prompt = template.format(
         filename=file_meta.get("filename", ""),
         path=file_meta.get("path", ""),
         extension=file_meta.get("extension", ""),
         size_bytes=file_meta.get("size_bytes", 0),
-        text_sample=text_sample[:4000],
+        text_sample=text_sample,
         context_block=context_block,
+        summary_length=length,
+        categories=cats,
     )
 
     try:
@@ -164,20 +229,9 @@ def analyze_document_openai(file_meta: dict, text_sample: str,
         data = response.json()
 
         content = data["choices"][0]["message"]["content"].strip()
-
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0].strip()
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0].strip()
-
-        result = json.loads(content)
-
-        if not all(k in result for k in ("summary", "keywords", "category")):
-            logger.warning("LLM response missing expected keys: %s", content[:200])
+        result = _parse_json_response(content)
+        if not result:
             return None
-
-        if isinstance(result["keywords"], str):
-            result["keywords"] = [k.strip() for k in result["keywords"].split(",")]
 
         usage = data.get("usage", {})
         result["llm_stats"] = {
@@ -200,6 +254,78 @@ def analyze_document_openai(file_meta: dict, text_sample: str,
     except Exception as e:
         logger.warning("LLM analysis failed: %s", e)
         return None
+
+
+def caption_image(image_data: bytes, prompt: str, config: dict,
+                  vision_config: dict = None) -> str | None:
+    """Caption an image using a vision-capable model.
+
+    Args:
+        image_data: Raw image bytes
+        prompt: Caption prompt
+        config: Main config dict
+        vision_config: {model, provider, endpoint} or None to use defaults
+
+    Returns caption string or None on failure.
+    """
+    vision_config = vision_config or {}
+    provider = vision_config.get("provider") or get_llm_provider(config)
+    vision_model = vision_config.get("model")
+
+    if not vision_model:
+        return None
+
+    b64_image = base64.b64encode(image_data).decode("utf-8")
+
+    if provider == "ollama":
+        endpoint = vision_config.get("endpoint") or config.get("ollama", {}).get("endpoint", "http://localhost:11434")
+        timeout = config.get("ollama", {}).get("timeout", 120)
+        try:
+            client = ollama.Client(host=endpoint, timeout=timeout)
+            response = client.chat(
+                model=vision_model,
+                messages=[{
+                    "role": "user",
+                    "content": prompt,
+                    "images": [b64_image],
+                }],
+            )
+            return response["message"]["content"].strip()
+        except Exception as e:
+            logger.warning("Vision captioning failed (ollama/%s): %s", vision_model, e)
+            return None
+
+    elif provider == "openai":
+        import os
+        openai_cfg = config.get("openai", {})
+        api_key = os.environ.get(openai_cfg.get("api_key_env", "OPENAI_API_KEY"))
+        base_url = vision_config.get("endpoint") or openai_cfg.get("base_url", "")
+        if not api_key or not base_url:
+            return None
+        try:
+            response = httpx.post(
+                f"{base_url.rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": vision_model,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_image}"}},
+                        ],
+                    }],
+                },
+                timeout=60,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            logger.warning("Vision captioning failed (openai/%s): %s", vision_model, e)
+            return None
+
+    return None
 
 
 def check_openai(openai_config: dict) -> bool:
@@ -227,7 +353,10 @@ def check_llm(config: dict) -> bool:
 
 
 def analyze(file_meta: dict, text_sample: str, config: dict,
-            similar_context: list[dict] = None) -> dict | None:
+            similar_context: list[dict] = None,
+            prompt_template: str = None,
+            categories: str = None,
+            summary_length: str = None) -> dict | None:
     """Route analysis to the configured LLM provider."""
     provider = get_llm_provider(config)
     if provider == "ollama":
@@ -236,7 +365,10 @@ def analyze(file_meta: dict, text_sample: str, config: dict,
                                 endpoint=cfg["endpoint"],
                                 model=cfg["model"],
                                 timeout=cfg.get("timeout", 120),
-                                similar_context=similar_context)
+                                similar_context=similar_context,
+                                prompt_template=prompt_template,
+                                categories=categories,
+                                summary_length=summary_length)
     elif provider == "openai":
         cfg = config["openai"]
         return analyze_document_openai(file_meta, text_sample,
@@ -244,7 +376,33 @@ def analyze(file_meta: dict, text_sample: str, config: dict,
                                        model=cfg["model"],
                                        api_key_env=cfg.get("api_key_env", "OPENAI_API_KEY"),
                                        timeout=cfg.get("timeout", 60),
-                                       similar_context=similar_context)
+                                       similar_context=similar_context,
+                                       prompt_template=prompt_template,
+                                       categories=categories,
+                                       summary_length=summary_length)
     else:
         logger.warning("No LLM provider configured")
         return None
+
+
+def _parse_json_response(content: str) -> dict | None:
+    """Extract and parse JSON from LLM response, handling markdown fences."""
+    if "```json" in content:
+        content = content.split("```json")[1].split("```")[0].strip()
+    elif "```" in content:
+        content = content.split("```")[1].split("```")[0].strip()
+
+    try:
+        result = json.loads(content)
+    except json.JSONDecodeError as e:
+        logger.warning("Failed to parse LLM JSON response: %s", e)
+        return None
+
+    if not all(k in result for k in ("summary", "keywords", "category")):
+        logger.warning("LLM response missing expected keys: %s", content[:200])
+        return None
+
+    if isinstance(result["keywords"], str):
+        result["keywords"] = [k.strip() for k in result["keywords"].split(",")]
+
+    return result

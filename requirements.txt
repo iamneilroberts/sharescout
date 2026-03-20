@@ -3,6 +3,7 @@ ollama
 python-docx
 pymupdf
 openpyxl
+python-pptx
 flask
 chardet
 httpx
