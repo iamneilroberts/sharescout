@@ -115,6 +115,23 @@
     {% endfor %}
 </div>
 
+{% if vision_gaps and vision_gaps.files_with_images > 0 %}
+<div class="card" style="margin-bottom: 1rem; border-left: 4px solid #ffc107; padding: 0.75rem 1rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="color: #ffc107;">Images Not Processed</strong>
+            <span class="text-muted" style="margin-left: 0.5rem; font-size: 0.85rem;">
+                {{ "{:,}".format(vision_gaps.total_skipped) }} image{{ "s" if vision_gaps.total_skipped != 1 }} across {{ "{:,}".format(vision_gaps.files_with_images) }} file{{ "s" if vision_gaps.files_with_images != 1 }} skipped — no vision model configured
+            </span>
+        </div>
+        <a href="{{ url_for('settings') }}" class="btn btn-sm" style="background: #6c757d; font-size: 0.75rem;">Configure Vision</a>
+    </div>
+    <p class="text-muted" style="margin: 0.3rem 0 0; font-size: 0.8rem;">
+        Set <code>llm.vision_model</code> in your domain preset (e.g. <code>llava</code>, <code>llama3.2-vision</code>) and re-crawl to caption embedded images.
+    </p>
+</div>
+{% endif %}
+
 {# ── Stats Cards ── #}
 <div class="stats-grid">
     <a href="{{ url_for('browse') }}" class="stat-card stat-link">

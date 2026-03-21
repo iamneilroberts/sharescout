@@ -170,6 +170,7 @@ def create_app(config: dict) -> Flask:
             recent_skips = cat.get_recent_errors(15)
             live = cat.get_live_status()
             ollama = _get_ollama_status(config)
+            vision_gaps = cat.get_unprocessed_image_stats()
             return render_template(
                 "dashboard.html",
                 stats=stats, score_dist=score_dist,
@@ -177,7 +178,7 @@ def create_app(config: dict) -> Flask:
                 crawl_runs=crawl_runs, recent=recent,
                 project_stats=project_stats, rate=rate,
                 recent_skips=recent_skips, live=live,
-                ollama=ollama,
+                ollama=ollama, vision_gaps=vision_gaps,
             )
         finally:
             cat.close()

@@ -49,7 +49,7 @@ def analyze_file(
         )
 
     # Process images (shared across strategies)
-    image_captions = _process_images(
+    image_captions, skipped_images = _process_images(
         doc.images, config, seen_image_hashes, verbose,
     )
 
@@ -82,6 +82,11 @@ def analyze_file(
         result["total_chars_extracted"] = doc.total_chars
         result["context_budget_used"] = context_budget_chars
         result["image_captions"] = [cap for _, cap in image_captions] if image_captions else []
+        result["images_found"] = len(doc.images)
+        result["images_captioned"] = len(image_captions)
+        result["images_skipped_no_vision"] = skipped_images.get("no_vision", 0)
+        result["images_skipped_dedup"] = skipped_images.get("dedup", 0)
+        result["images_skipped_failed"] = skipped_images.get("failed", 0)
         if strategy != "chunked":
             result["chunk_count"] = None
 
@@ -265,15 +270,19 @@ def _process_images(
     config: dict,
     seen_image_hashes: Counter,
     verbose: bool,
-) -> list[tuple[int, str]]:
+) -> tuple[list[tuple[int, str]], dict]:
     """Process images: dedup and caption.
 
-    Returns list of (char_offset, caption) tuples.
+    Returns (captions, skipped) where:
+        captions: list of (char_offset, caption) tuples
+        skipped: dict with counts {no_vision, dedup, failed}
     """
     global _vision_warned
 
+    skipped = {"no_vision": 0, "dedup": 0, "failed": 0}
+
     if not images:
-        return []
+        return [], skipped
 
     preset = config.get("_preset", {})
     vision_model = preset.get("llm", {}).get("vision_model")
@@ -281,10 +290,17 @@ def _process_images(
         vision_model = config.get("llm", {}).get("vision_model")
 
     if not vision_model:
+        skipped["no_vision"] = len(images)
         if not _vision_warned:
-            logger.info("No vision model configured — skipping image captioning")
+            logger.warning(
+                "No vision model configured — %d image(s) in this document will not be captioned. "
+                "Set llm.vision_model in your preset or config to enable image processing.",
+                len(images),
+            )
             _vision_warned = True
-        return []
+        elif verbose:
+            logger.debug("Skipping %d images (no vision model)", len(images))
+        return [], skipped
 
     dedup_threshold = preset.get("image_dedup_threshold", 3)
     caption_prompt = get_prompt("image_caption", preset)
@@ -299,6 +315,7 @@ def _process_images(
         # Dedup check
         count = seen_image_hashes[img.content_hash]
         if count >= dedup_threshold:
+            skipped["dedup"] += 1
             if verbose:
                 logger.debug("Skipping deduped image %s (seen %d times)", img.source, count)
             continue
@@ -310,8 +327,10 @@ def _process_images(
             captions.append((img.char_offset, caption))
             if verbose:
                 logger.debug("Image caption (%s): %s", img.source, caption[:100])
+        else:
+            skipped["failed"] += 1
 
-    return captions
+    return captions, skipped
 
 
 def _assemble_text(sections, image_captions):

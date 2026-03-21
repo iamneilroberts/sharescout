@@ -141,6 +141,8 @@ class Catalog:
             ("chunk_count", "INTEGER"),
             ("total_chars_extracted", "INTEGER"),
             ("context_budget_used", "INTEGER"),
+            ("images_found", "INTEGER"),
+            ("images_skipped_no_vision", "INTEGER"),
         ]
         for col_name, col_type in new_columns:
             try:
@@ -243,14 +245,16 @@ class Catalog:
                         keywords: list[str], category: str, llm_stats: dict = None,
                         processing_strategy: str = None, image_captions: list = None,
                         chunk_count: int = None, total_chars_extracted: int = None,
-                        context_budget_used: int = None):
+                        context_budget_used: int = None,
+                        images_found: int = None, images_skipped_no_vision: int = None):
         # Delete existing analysis for this file (re-crawl)
         self._conn.execute("DELETE FROM analyses WHERE file_id = ?", (file_id,))
         self._conn.execute(
             """INSERT INTO analyses (file_id, text_sample, summary, keywords, category,
                                     llm_stats, analyzed_at, processing_strategy, image_captions,
-                                    chunk_count, total_chars_extracted, context_budget_used)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                    chunk_count, total_chars_extracted, context_budget_used,
+                                    images_found, images_skipped_no_vision)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (file_id, text_sample, summary, json.dumps(keywords), category,
              json.dumps(llm_stats) if llm_stats else None,
              datetime.now().isoformat(),
@@ -258,7 +262,9 @@ class Catalog:
              json.dumps(image_captions) if image_captions else None,
              chunk_count,
              total_chars_extracted,
-             context_budget_used),
+             context_budget_used,
+             images_found,
+             images_skipped_no_vision),
         )
 
     # -- Chunk summaries --
@@ -542,6 +548,18 @@ class Catalog:
         status["active_crawl"] = dict(row) if row else None
 
         return status
+
+    def get_unprocessed_image_stats(self) -> dict:
+        """Get counts of files with images that weren't captioned due to no vision model."""
+        row = self._conn.execute("""
+            SELECT
+                COUNT(*) as files_with_images,
+                COALESCE(SUM(images_skipped_no_vision), 0) as total_skipped,
+                COALESCE(SUM(images_found), 0) as total_images
+            FROM analyses
+            WHERE images_skipped_no_vision > 0
+        """).fetchone()
+        return dict(row) if row else {"files_with_images": 0, "total_skipped": 0, "total_images": 0}
 
     def get_similar_files(self, filename: str, limit: int = 5) -> list[dict]:
         """Find already-analyzed files with the same filename for context."""

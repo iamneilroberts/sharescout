@@ -157,6 +157,8 @@ def run_crawl(config: dict, rules: dict, dry_run: bool = False):
                             chunk_count=analysis.get("chunk_count"),
                             total_chars_extracted=analysis.get("total_chars_extracted"),
                             context_budget_used=analysis.get("context_budget_used"),
+                            images_found=analysis.get("images_found"),
+                            images_skipped_no_vision=analysis.get("images_skipped_no_vision"),
                         )
                         catalog.upsert_file({**file_row, "status": "analyzed"})
                         total_analyzed += 1
@@ -181,6 +183,16 @@ def run_crawl(config: dict, rules: dict, dry_run: bool = False):
                         )
 
             ckpt.complete()
+
+            # Report files with unprocessed images
+            no_vision_stats = catalog.get_unprocessed_image_stats()
+            if no_vision_stats["files_with_images"] > 0 and no_vision_stats["total_skipped"] > 0:
+                logger.warning(
+                    "Images without vision processing: %d image(s) across %d file(s) were not captioned. "
+                    "Configure llm.vision_model in your preset or config.yaml to enable image captioning.",
+                    no_vision_stats["total_skipped"],
+                    no_vision_stats["files_with_images"],
+                )
 
         except KeyboardInterrupt:
             logger.info("Crawl interrupted — progress saved. Resume by running again.")
