@@ -18,12 +18,8 @@ MAX_DISTANCE = 0.95
 
 
 SYSTEM_MESSAGE = (
-    "You are a document search assistant. Answer ONLY using the document excerpts provided below. "
-    "Do NOT use your own knowledge — only information found in the excerpts. "
-    "Cite the source filename for each fact. "
-    "If the excerpts don't answer the question, say: 'The indexed documents don't contain information about this.' "
-    "Keep your answer concise and factual. "
-    "Always respond in English."
+    "You are a document search assistant. You answer questions using ONLY the provided document excerpts. "
+    "You must respond in English."
 )
 
 
@@ -109,6 +105,11 @@ def ask(config: dict, catalog, question: str, top_k: int = 5,
 
     excerpts_text = "\n\n".join(excerpt_blocks)
     user_message = (
+        f"## IMPORTANT RULES\n"
+        f"- Answer ONLY using the document excerpts below. Do NOT use your own knowledge.\n"
+        f"- If the excerpts don't contain the answer, say: 'The indexed documents don't contain information about this.'\n"
+        f"- Cite the source filename for each fact.\n"
+        f"- Be concise and factual.\n\n"
         f"## Document Excerpts\n\n{excerpts_text}\n\n"
         f"## Question\n{question}"
     )
