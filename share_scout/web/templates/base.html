@@ -46,25 +46,33 @@
             });
         })();
 
-        // Nav crawl status polling
+        // Nav status polling (crawl + embed)
         (function() {
             var el = document.getElementById('nav-crawl-status');
             function update() {
                 fetch('/crawl/status')
                     .then(function(r) { return r.json(); })
                     .then(function(d) {
+                        var parts = [];
                         if (d.running) {
-                            el.innerHTML = '<span style="color: #51cf66;">&#9679;</span> Crawling: ' +
-                                d.analyzed + ' analyzed, ' + d.extracted + ' extracted' +
-                                (d.per_minute > 0 ? ' (' + d.per_minute + '/min)' : '');
+                            parts.push('<span style="color: #51cf66;">&#9679;</span> Crawling: ' +
+                                d.analyzed + ' analyzed, ' + d.extracted + ' queued' +
+                                (d.per_minute > 0 ? ' (' + d.per_minute + '/min)' : ''));
                         } else {
-                            el.innerHTML = '<span style="color: #6c757d;">&#9679;</span> ' + d.analyzed + ' analyzed';
+                            parts.push('<span style="color: #6c757d;">&#9679;</span> ' + d.analyzed + ' analyzed');
                         }
+                        if (d.embedding) {
+                            parts.push('<span style="color: #51cf66;">&#9679;</span> Embedding: ' +
+                                d.embedded_files + ' files (' + d.total_embeddings + ' vectors)');
+                        } else if (d.embedded_files > 0) {
+                            parts.push(d.embedded_files + ' embedded');
+                        }
+                        el.innerHTML = parts.join(' &nbsp;|&nbsp; ');
                     })
                     .catch(function() { el.textContent = ''; });
             }
             update();
-            setInterval(update, 10000);
+            setInterval(update, 5000);
         })();
     </script>
 </body>

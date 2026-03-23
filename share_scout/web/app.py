@@ -175,6 +175,7 @@ def create_app(config: dict) -> Flask:
             vision_gaps = cat.get_unprocessed_image_stats()
             embedding_stats = cat.get_embedding_stats()
             embedding_model = config.get("ollama", {}).get("embedding_model")
+            embed_running = _is_embed_running()
             return render_template(
                 "dashboard.html",
                 stats=stats, score_dist=score_dist,
@@ -184,6 +185,7 @@ def create_app(config: dict) -> Flask:
                 recent_skips=recent_skips, live=live,
                 ollama=ollama, vision_gaps=vision_gaps,
                 embedding_stats=embedding_stats, embedding_model=embedding_model,
+                embed_running=embed_running,
             )
         finally:
             cat.close()
@@ -249,15 +251,18 @@ def create_app(config: dict) -> Flask:
 
     @app.route("/crawl/status")
     def crawl_status_api():
-        """JSON endpoint for polling crawl status."""
+        """JSON endpoint for polling crawl + embed status."""
         running = _is_crawl_running()
+        embedding = _is_embed_running()
         cat = get_catalog()
         try:
             stats = cat.get_stats()
             live = cat.get_live_status()
             rate = cat.get_analysis_rate()
+            emb = cat.get_embedding_stats()
             return jsonify({
                 "running": running,
+                "embedding": embedding,
                 "total_files": stats["total_files"],
                 "analyzed": stats["analyzed"],
                 "extracted": stats["extracted"],
@@ -267,6 +272,9 @@ def create_app(config: dict) -> Flask:
                 "last_analyzed_project": project_name(live["last_analyzed"]["path"]) if live["last_analyzed"] else None,
                 "per_minute": rate.get("per_minute", 0),
                 "eta_hours": rate.get("eta_hours", 0),
+                "embedded_files": emb.get("files_with_embeddings", 0),
+                "total_embeddings": emb.get("total_embeddings", 0),
+                "unembedded_files": emb.get("files_without_embeddings", 0),
             })
         finally:
             cat.close()

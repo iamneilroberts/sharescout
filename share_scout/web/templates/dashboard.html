@@ -136,16 +136,19 @@
 {% if embedding_stats %}
 <div class="card" style="margin-bottom: 1rem; border-left: 4px solid {{ '#198754' if embedding_stats.files_with_embeddings > 0 else ('#ffc107' if embedding_stats.vec_available else '#6c757d') }};">
     <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
             <strong>Semantic Search</strong>
+            {% if embed_running %}
+            <span class="score score-high" style="font-size: 0.7rem;">embedding...</span>
+            {% endif %}
             {% if embedding_model %}
-            <span class="text-muted" style="margin-left: 0.5rem; font-size: 0.85rem;">
+            <span class="text-muted" style="font-size: 0.85rem;">
                 Model: {{ embedding_model }}
             </span>
             {% endif %}
         </div>
         <div style="display: flex; gap: 0.5rem;">
-            {% if embedding_model and embedding_stats.vec_available and embedding_stats.files_without_embeddings > 0 %}
+            {% if embedding_model and embedding_stats.vec_available and embedding_stats.files_without_embeddings > 0 and not embed_running %}
             <form method="post" action="{{ url_for('embed_start') }}" style="display: inline;">
                 <button type="submit" class="btn btn-sm" style="background: #198754; font-size: 0.75rem;">Generate Embeddings</button>
             </form>
@@ -524,7 +527,7 @@
 
 <script>
 (function() {
-    const REFRESH_INTERVAL = 10;
+    const REFRESH_INTERVAL = 5;
     let countdown = REFRESH_INTERVAL;
     let autoRefresh = document.getElementById('auto-refresh').checked;
     const timerEl = document.getElementById('refresh-timer');
