@@ -189,12 +189,16 @@ def _analyze_chunked(
             logger.debug("  Chunk %d: %d chars", i, len(chunk_text))
 
         # Use a chunk-specific prompt
+        # Escape curly braces in chunk_text — this prompt gets passed to
+        # analyze() which calls template.format() on it, so raw { } from
+        # code files would cause KeyError
+        safe_chunk = chunk_text.replace("{", "{{").replace("}", "}}")
         chunk_prompt = (
             f"Summarize this section (chunk {i+1} of {len(chunks)}) of a larger document. "
             f"Extract the key information, specific details, and important names/terms.\n\n"
             f"File: {file_row.get('filename', '')}\n"
             f"Path: {file_row.get('path', '')}\n\n"
-            f"Text:\n---\n{chunk_text}\n---\n\n"
+            f"Text:\n---\n{safe_chunk}\n---\n\n"
             f"Respond in JSON: {{\"summary\": \"...\", \"keywords\": [\"...\"], \"category\": \"...\"}}\n"
             f"Category (pick one): {chunk_analysis_cats}"
         )
