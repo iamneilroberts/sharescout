@@ -132,6 +132,53 @@
 </div>
 {% endif %}
 
+{# ── Embedding Status ── #}
+{% if embedding_stats %}
+<div class="card" style="margin-bottom: 1rem; border-left: 4px solid {{ '#198754' if embedding_stats.files_with_embeddings > 0 else ('#ffc107' if embedding_stats.vec_available else '#6c757d') }};">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong>Semantic Search</strong>
+            {% if embedding_model %}
+            <span class="text-muted" style="margin-left: 0.5rem; font-size: 0.85rem;">
+                Model: {{ embedding_model }}
+            </span>
+            {% endif %}
+        </div>
+        {% if embedding_stats.files_with_embeddings > 0 %}
+        <a href="{{ url_for('ask') }}" class="btn btn-sm" style="background: var(--primary); font-size: 0.75rem;">Ask AI</a>
+        {% endif %}
+    </div>
+
+    {% if not embedding_stats.vec_available %}
+    <p class="text-muted" style="margin: 0.5rem 0 0; font-size: 0.85rem;">
+        sqlite-vec not installed. Run <code>pip install sqlite-vec</code> to enable vector search.
+    </p>
+    {% elif not embedding_model %}
+    <p class="text-muted" style="margin: 0.5rem 0 0; font-size: 0.85rem;">
+        Set <code>ollama.embedding_model</code> in config.yaml to enable semantic search.
+    </p>
+    {% else %}
+    {% set total_files = embedding_stats.files_with_embeddings + embedding_stats.files_without_embeddings %}
+    {% if total_files > 0 %}
+    <div style="margin-top: 0.5rem;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.3rem;">
+            <span>Embeddings</span>
+            <span>{{ "{:,}".format(embedding_stats.files_with_embeddings) }} / {{ "{:,}".format(total_files) }} files embedded ({{ "{:,}".format(embedding_stats.total_embeddings) }} vectors)</span>
+        </div>
+        <div style="background: var(--progress-track, #2a2a2a); border-radius: 4px; height: 12px; overflow: hidden;">
+            {% set emb_pct = (embedding_stats.files_with_embeddings / total_files * 100) if total_files > 0 else 0 %}
+            <div style="width: {{ emb_pct }}%; background: #198754; height: 100%; transition: width 0.5s;"></div>
+        </div>
+    </div>
+    {% else %}
+    <p class="text-muted" style="margin: 0.5rem 0 0; font-size: 0.85rem;">
+        No analyzed files yet. Run a crawl first, then embed.
+    </p>
+    {% endif %}
+    {% endif %}
+</div>
+{% endif %}
+
 {# ── Stats Cards ── #}
 <div class="stats-grid">
     <a href="{{ url_for('browse') }}" class="stat-card stat-link">
