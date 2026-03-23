@@ -31,42 +31,64 @@ def ask(config: dict, catalog, question: str, top_k: int = 5,
         history: list[dict] = None) -> dict:
     """Answer a question using RAG over the document catalog.
 
-    Args:
-        config: App configuration
-        catalog: Catalog instance (connected)
-        question: User's question
-        top_k: Number of sources to retrieve
-        history: Previous conversation turns [{"role": "user"|"assistant", "content": str}, ...]
-
-    Returns:
-        {
-            "answer": str,
-            "sources": [{"file_id", "filename", "path", "chunk_text", "distance"}]
-        }
-
-    On failure, "answer" will be an error message and "sources" will be empty.
+    Returns dict with: answer, sources, and debug (timing + pipeline details).
     """
+    import time
+    debug = {
+        "steps": [],
+        "timings": {},
+        "config": {
+            "embedding_model": config.get("ollama", {}).get("embedding_model", "?"),
+            "embedding_endpoint": config.get("ollama", {}).get("embedding_endpoint")
+                or config.get("ollama", {}).get("endpoint", "?"),
+            "chat_model": config.get("ollama", {}).get("model", "?"),
+            "chat_endpoint": config.get("ollama", {}).get("endpoint", "?"),
+            "chat_provider": get_llm_provider(config),
+            "top_k": top_k,
+            "max_distance": MAX_DISTANCE,
+            "history_turns": len(history) if history else 0,
+        },
+    }
+    t_total = time.time()
+
     # 1. Embed the question
+    t0 = time.time()
     query_vec = generate_embedding(config, question)
+    embed_ms = round((time.time() - t0) * 1000)
+    debug["timings"]["embed_question_ms"] = embed_ms
+
     if query_vec is None:
-        logger.warning("RAG: embedding generation failed — cannot answer question")
+        debug["steps"].append(f"1. Embed question: FAILED ({embed_ms}ms)")
         return {
             "answer": "Unable to process your question: embedding generation failed. "
                       "Check that an embedding model is configured and reachable.",
-            "sources": [],
+            "sources": [], "debug": debug,
         }
+    debug["steps"].append(f"1. Embed question: OK ({embed_ms}ms, {len(query_vec)} dims)")
+    debug["embedding_dims"] = len(query_vec)
 
     # 2. KNN search
-    results = catalog.vector_search(query_vec, limit=top_k)
+    t0 = time.time()
+    raw_results = catalog.vector_search(query_vec, limit=top_k)
+    search_ms = round((time.time() - t0) * 1000)
+    debug["timings"]["vector_search_ms"] = search_ms
+    debug["raw_results"] = len(raw_results)
+    debug["raw_distances"] = [round(r.get("distance", 0), 4) for r in raw_results]
 
     # Filter out poor matches
-    results = [r for r in results if r.get("distance", 999) < MAX_DISTANCE]
+    results = [r for r in raw_results if r.get("distance", 999) < MAX_DISTANCE]
+    debug["filtered_results"] = len(results)
+    debug["steps"].append(
+        f"2. Vector search: {len(raw_results)} raw → {len(results)} after filter "
+        f"(threshold {MAX_DISTANCE}) ({search_ms}ms)"
+    )
 
     if not results:
-        logger.info("RAG: no relevant documents found for question")
+        debug["timings"]["total_ms"] = round((time.time() - t_total) * 1000)
+        debug["steps"].append("3. No relevant results — stopping")
         return {
             "answer": "No relevant documents were found in the catalog for your question.",
-            "sources": [],
+            "sources": [], "debug": debug,
         }
 
     # 3. Resolve chunk text for sources that don't have it
@@ -93,16 +115,27 @@ def ask(config: dict, catalog, question: str, top_k: int = 5,
 
     # 5. Build messages with conversation history
     messages = [{"role": "system", "content": SYSTEM_MESSAGE}]
-
     if history:
-        # Include previous turns (limit to last 6 to stay within context)
         for turn in history[-6:]:
             messages.append({"role": turn["role"], "content": turn["content"]})
-
     messages.append({"role": "user", "content": user_message})
 
+    total_prompt_chars = sum(len(m["content"]) for m in messages)
+    debug["prompt_chars"] = total_prompt_chars
+    debug["prompt_messages"] = len(messages)
+    debug["excerpt_chars"] = len(excerpts_text)
+    debug["steps"].append(
+        f"3. Build prompt: {len(messages)} messages, {total_prompt_chars:,} chars "
+        f"({len(excerpts_text):,} chars excerpts)"
+    )
+
     # 6. Call chat model
+    t0 = time.time()
     answer = _chat(config, messages)
+    chat_ms = round((time.time() - t0) * 1000)
+    debug["timings"]["chat_ms"] = chat_ms
+    debug["answer_chars"] = len(answer)
+    debug["steps"].append(f"4. LLM chat: {len(answer):,} chars response ({chat_ms}ms)")
 
     # 7. Build sources list
     sources = [
@@ -116,7 +149,10 @@ def ask(config: dict, catalog, question: str, top_k: int = 5,
         for s in results
     ]
 
-    return {"answer": answer, "sources": sources}
+    debug["timings"]["total_ms"] = round((time.time() - t_total) * 1000)
+    debug["steps"].append(f"5. Total: {debug['timings']['total_ms']}ms")
+
+    return {"answer": answer, "sources": sources, "debug": debug}
 
 
 def _chat(config: dict, messages: list[dict]) -> str:

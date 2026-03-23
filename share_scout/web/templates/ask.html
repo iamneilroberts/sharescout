@@ -90,6 +90,74 @@ document.getElementById('ask-form').addEventListener('submit', function() {
     {% endfor %}
 </div>
 {% endif %}
+
+{# ── Debug Panel ── #}
+{% if debug %}
+<div class="card" style="margin-top: 1rem; border-left: 4px solid #6f42c1;">
+    <details>
+        <summary style="cursor: pointer; font-weight: 600;">Debug — Pipeline Telemetry</summary>
+        <div style="margin-top: 0.75rem;">
+
+            {# Timing bars #}
+            <div style="margin-bottom: 1rem;">
+                <strong style="font-size: 0.85rem;">Timing</strong>
+                {% set total = debug.timings.get('total_ms', 1) %}
+                <div style="display: flex; gap: 2px; height: 24px; margin-top: 0.4rem; border-radius: 4px; overflow: hidden;">
+                    {% set embed_pct = (debug.timings.get('embed_question_ms', 0) / total * 100) %}
+                    {% set search_pct = (debug.timings.get('vector_search_ms', 0) / total * 100) %}
+                    {% set chat_pct = (debug.timings.get('chat_ms', 0) / total * 100) %}
+                    <div style="width: {{ embed_pct }}%; background: #0d6efd; min-width: {% if embed_pct > 0 %}2px{% else %}0{% endif %};" title="Embed: {{ debug.timings.get('embed_question_ms', 0) }}ms"></div>
+                    <div style="width: {{ search_pct }}%; background: #6f42c1; min-width: {% if search_pct > 0 %}2px{% else %}0{% endif %};" title="Search: {{ debug.timings.get('vector_search_ms', 0) }}ms"></div>
+                    <div style="width: {{ chat_pct }}%; background: #198754; min-width: {% if chat_pct > 0 %}2px{% else %}0{% endif %};" title="Chat: {{ debug.timings.get('chat_ms', 0) }}ms"></div>
+                </div>
+                <div style="display: flex; gap: 1.5rem; font-size: 0.75rem; margin-top: 0.3rem;">
+                    <span><span style="display: inline-block; width: 10px; height: 10px; background: #0d6efd; border-radius: 2px;"></span> Embed {{ debug.timings.get('embed_question_ms', 0) }}ms</span>
+                    <span><span style="display: inline-block; width: 10px; height: 10px; background: #6f42c1; border-radius: 2px;"></span> Search {{ debug.timings.get('vector_search_ms', 0) }}ms</span>
+                    <span><span style="display: inline-block; width: 10px; height: 10px; background: #198754; border-radius: 2px;"></span> Chat {{ debug.timings.get('chat_ms', 0) }}ms</span>
+                    <span style="margin-left: auto;"><strong>Total: {{ debug.timings.get('total_ms', 0) }}ms</strong></span>
+                </div>
+            </div>
+
+            {# Pipeline steps #}
+            <div style="margin-bottom: 1rem;">
+                <strong style="font-size: 0.85rem;">Pipeline Steps</strong>
+                <div style="margin-top: 0.4rem; font-family: monospace; font-size: 0.8rem; line-height: 1.6;">
+                    {% for step in debug.get('steps', []) %}
+                    <div>{{ step }}</div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            {# Config + stats #}
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; font-size: 0.8rem;">
+                <div>
+                    <strong>Configuration</strong>
+                    <table style="margin-top: 0.3rem; font-size: 0.8rem;">
+                        {% for key, val in debug.get('config', {}).items() %}
+                        <tr>
+                            <td class="text-muted" style="padding: 0.1rem 0.5rem 0.1rem 0;">{{ key }}</td>
+                            <td>{{ val }}</td>
+                        </tr>
+                        {% endfor %}
+                    </table>
+                </div>
+                <div>
+                    <strong>Search Stats</strong>
+                    <table style="margin-top: 0.3rem; font-size: 0.8rem;">
+                        <tr><td class="text-muted" style="padding: 0.1rem 0.5rem 0.1rem 0;">Raw results</td><td>{{ debug.get('raw_results', '?') }}</td></tr>
+                        <tr><td class="text-muted" style="padding: 0.1rem 0.5rem 0.1rem 0;">After filter</td><td>{{ debug.get('filtered_results', '?') }}</td></tr>
+                        <tr><td class="text-muted" style="padding: 0.1rem 0.5rem 0.1rem 0;">Distances</td><td>{{ debug.get('raw_distances', []) | join(', ') }}</td></tr>
+                        <tr><td class="text-muted" style="padding: 0.1rem 0.5rem 0.1rem 0;">Prompt chars</td><td>{{ "{:,}".format(debug.get('prompt_chars', 0)) }}</td></tr>
+                        <tr><td class="text-muted" style="padding: 0.1rem 0.5rem 0.1rem 0;">Prompt messages</td><td>{{ debug.get('prompt_messages', '?') }}</td></tr>
+                        <tr><td class="text-muted" style="padding: 0.1rem 0.5rem 0.1rem 0;">Answer chars</td><td>{{ "{:,}".format(debug.get('answer_chars', 0)) }}</td></tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </details>
+</div>
+{% endif %}
+
 </div>
 {% endif %}
 {% endif %}

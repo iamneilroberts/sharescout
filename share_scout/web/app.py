@@ -577,6 +577,7 @@ def create_app(config: dict) -> Flask:
             question = None
             answer = None
             sources = []
+            debug = None
             history = flask_session.get("ask_history", [])
 
             if request.method == "POST":
@@ -591,6 +592,7 @@ def create_app(config: dict) -> Flask:
                     result = rag_ask(config, cat, question, history=history)
                     answer = result.get("answer", "")
                     sources = result.get("sources", [])
+                    debug = result.get("debug")
 
                     # Append to conversation history
                     history.append({"role": "user", "content": question})
@@ -604,6 +606,7 @@ def create_app(config: dict) -> Flask:
                 answer=answer,
                 sources=sources,
                 history=history,
+                debug=debug,
             )
         finally:
             cat.close()
