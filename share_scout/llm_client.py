@@ -380,6 +380,8 @@ def generate_embedding(config: dict, text: str) -> list[float] | None:
 
     Uses embedding_endpoint if set, otherwise falls back to ollama.endpoint.
     Returns a list of floats, or None on failure.
+
+    Caller is responsible for ensuring text fits within the model's context window.
     """
     ollama_cfg = config.get("ollama", {})
     embedding_model = ollama_cfg.get("embedding_model")
