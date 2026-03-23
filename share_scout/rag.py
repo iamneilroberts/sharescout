@@ -17,15 +17,26 @@ MAX_DISTANCE = 0.95
 
 
 
-def ask(config: dict, catalog, question: str, top_k: int = 5) -> dict:
+SYSTEM_MESSAGE = (
+    "You are a document search assistant. Answer ONLY using the document excerpts provided below. "
+    "Do NOT use your own knowledge — only information found in the excerpts. "
+    "Cite the source filename for each fact. "
+    "If the excerpts don't answer the question, say: 'The indexed documents don't contain information about this.' "
+    "Keep your answer concise and factual. "
+    "Always respond in English."
+)
+
+
+def ask(config: dict, catalog, question: str, top_k: int = 5,
+        history: list[dict] = None) -> dict:
     """Answer a question using RAG over the document catalog.
 
-    Steps:
-    1. Embed the question
-    2. KNN search for relevant chunks
-    3. Build a prompt with retrieved excerpts
-    4. Call the chat model
-    5. Return answer + sources
+    Args:
+        config: App configuration
+        catalog: Catalog instance (connected)
+        question: User's question
+        top_k: Number of sources to retrieve
+        history: Previous conversation turns [{"role": "user"|"assistant", "content": str}, ...]
 
     Returns:
         {
@@ -48,7 +59,7 @@ def ask(config: dict, catalog, question: str, top_k: int = 5) -> dict:
     # 2. KNN search
     results = catalog.vector_search(query_vec, limit=top_k)
 
-    # Filter out poor matches — cosine distance > 1.0 means less than 0% similarity
+    # Filter out poor matches
     results = [r for r in results if r.get("distance", 999) < MAX_DISTANCE]
 
     if not results:
@@ -64,7 +75,7 @@ def ask(config: dict, catalog, question: str, top_k: int = 5) -> dict:
             analysis = catalog.get_analysis(source["file_id"])
             source["chunk_text"] = analysis["text_sample"] if analysis else ""
 
-    # 4. Build prompt
+    # 4. Build prompt with excerpts
     excerpt_blocks = []
     for i, source in enumerate(results, start=1):
         filename = source.get("filename", "unknown")
@@ -80,24 +91,20 @@ def ask(config: dict, catalog, question: str, top_k: int = 5) -> dict:
         f"## Question\n{question}"
     )
 
-    system_message = (
-        "You are a document search assistant. Answer ONLY using the document excerpts provided below. "
-        "Do NOT use your own knowledge — only information found in the excerpts. "
-        "Cite the source filename for each fact. "
-        "If the excerpts don't answer the question, say: 'The indexed documents don't contain information about this.' "
-        "Keep your answer concise and factual. "
-        "Always respond in English."
-    )
+    # 5. Build messages with conversation history
+    messages = [{"role": "system", "content": SYSTEM_MESSAGE}]
 
-    messages = [
-        {"role": "system", "content": system_message},
-        {"role": "user", "content": user_message},
-    ]
+    if history:
+        # Include previous turns (limit to last 6 to stay within context)
+        for turn in history[-6:]:
+            messages.append({"role": turn["role"], "content": turn["content"]})
 
-    # 5. Call chat model
+    messages.append({"role": "user", "content": user_message})
+
+    # 6. Call chat model
     answer = _chat(config, messages)
 
-    # 6. Build sources list
+    # 7. Build sources list
     sources = [
         {
             "file_id": s.get("file_id"),

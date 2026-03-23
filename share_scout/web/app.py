@@ -53,6 +53,7 @@ def _get_ollama_status(config: dict) -> dict:
 def create_app(config: dict) -> Flask:
     app = Flask(__name__)
     app.config["APP_CONFIG"] = config
+    app.secret_key = "sharescout-session-key"
     db_path = config["catalog"]["db_path"]
 
     def get_catalog() -> Catalog:
@@ -560,6 +561,7 @@ def create_app(config: dict) -> Flask:
 
     @app.route("/ask", methods=["GET", "POST"])
     def ask():
+        from flask import session as flask_session
         from ..rag import ask as rag_ask
         cat = get_catalog()
         try:
@@ -567,13 +569,25 @@ def create_app(config: dict) -> Flask:
             question = None
             answer = None
             sources = []
+            history = flask_session.get("ask_history", [])
 
             if request.method == "POST":
+                action = request.form.get("action", "ask")
+
+                if action == "clear":
+                    flask_session.pop("ask_history", None)
+                    return redirect(url_for("ask"))
+
                 question = request.form.get("question", "").strip()
                 if question and has_embeddings:
-                    result = rag_ask(config, cat, question)
+                    result = rag_ask(config, cat, question, history=history)
                     answer = result.get("answer", "")
                     sources = result.get("sources", [])
+
+                    # Append to conversation history
+                    history.append({"role": "user", "content": question})
+                    history.append({"role": "assistant", "content": answer})
+                    flask_session["ask_history"] = history
 
             return render_template(
                 "ask.html",
@@ -581,6 +595,7 @@ def create_app(config: dict) -> Flask:
                 question=question,
                 answer=answer,
                 sources=sources,
+                history=history,
             )
         finally:
             cat.close()

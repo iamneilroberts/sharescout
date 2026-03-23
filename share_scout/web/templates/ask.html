@@ -9,14 +9,41 @@
     <p class="text-muted" style="margin: 0.5rem 0 0;">No document embeddings found. Run <code>python -m share_scout embed</code> to generate embeddings first.</p>
 </div>
 {% else %}
+
+{# ── Conversation History ── #}
+{% if history and history|length > 0 %}
 <div class="card" style="margin-bottom: 1rem;">
-    <form method="post" action="{{ url_for('ask') }}">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <h3 style="margin: 0;">Conversation ({{ (history|length) // 2 }} turns)</h3>
+        <form method="post" action="{{ url_for('ask') }}" style="display: inline;">
+            <input type="hidden" name="action" value="clear">
+            <button type="submit" class="btn btn-sm" style="background: #6c757d; font-size: 0.75rem;">New Conversation</button>
+        </form>
+    </div>
+    {% for turn in history %}
+    {% if turn.role == "user" %}
+    <div style="margin-bottom: 0.5rem;">
+        <strong style="color: var(--primary);">You:</strong>
+        <span>{{ turn.content }}</span>
+    </div>
+    {% elif turn.role == "assistant" %}
+    <div style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);">
+        <strong style="color: var(--success);">AI:</strong>
+        <div style="white-space: pre-wrap; line-height: 1.5; margin-top: 0.25rem; color: var(--text-muted);">{{ turn.content[:800] }}{% if turn.content|length > 800 %}...{% endif %}</div>
+    </div>
+    {% endif %}
+    {% endfor %}
+</div>
+{% endif %}
+
+{# ── Question Input ── #}
+<div class="card" style="margin-bottom: 1rem;">
+    <form method="post" action="{{ url_for('ask') }}" id="ask-form">
         <div style="display: flex; gap: 0.5rem;">
             <input
                 type="text"
                 name="question"
-                placeholder="Ask a question about your documents..."
-                value="{{ question or '' }}"
+                placeholder="{{ 'Ask a follow-up question...' if history else 'Ask a question about your documents...' }}"
                 style="flex: 1; padding: 0.5rem 0.75rem; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font-size: 1rem;"
                 autofocus
             >
@@ -25,7 +52,7 @@
     </form>
 </div>
 <script>
-document.querySelector('form').addEventListener('submit', function() {
+document.getElementById('ask-form').addEventListener('submit', function() {
     document.getElementById('ask-btn').textContent = 'Thinking...';
     document.getElementById('ask-btn').disabled = true;
     var results = document.getElementById('ask-results');
@@ -33,6 +60,7 @@ document.querySelector('form').addEventListener('submit', function() {
 });
 </script>
 
+{# ── Latest Answer + Sources ── #}
 {% if answer %}
 <div id="ask-results">
 <div class="card" style="margin-bottom: 1rem;">
