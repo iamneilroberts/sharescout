@@ -72,9 +72,11 @@ def ask(config: dict, catalog, question: str, top_k: int = 5) -> dict:
     )
 
     system_message = (
-        "Answer the user's question based on the document excerpts below. "
-        "Cite sources by filename. "
-        "If the excerpts don't contain relevant information, say so."
+        "You are a document search assistant. Answer ONLY using the document excerpts provided below. "
+        "Do NOT use your own knowledge — only information found in the excerpts. "
+        "Cite the source filename for each fact. "
+        "If the excerpts don't answer the question, say: 'The indexed documents don't contain information about this.' "
+        "Keep your answer concise and factual."
     )
 
     messages = [
