@@ -20,6 +20,7 @@
             <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Dashboard</a>
             <a href="{{ url_for('browse') }}" class="{{ 'active' if request.endpoint == 'browse' }}">Browse</a>
             <a href="{{ url_for('search') }}" class="{{ 'active' if request.endpoint == 'search' }}">Search</a>
+            <a href="{{ url_for('ask') }}" class="{{ 'active' if request.endpoint == 'ask' }}">Ask AI</a>
             <a href="{{ url_for('compare') }}" class="{{ 'active' if request.endpoint == 'compare' }}">Compare</a>
             <a href="{{ url_for('tags') }}" class="{{ 'active' if request.endpoint == 'tags' }}">Tags</a>
             <a href="{{ url_for('timeline') }}" class="{{ 'active' if request.endpoint == 'timeline' }}">Timeline</a>

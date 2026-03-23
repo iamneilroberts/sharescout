@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Ask AI — ShareScout{% endblock %}
+{% block content %}
+<h1>Ask AI</h1>
+
+{% if not has_embeddings %}
+<div class="card" style="border-left: 4px solid var(--warning); padding: 1rem;">
+    <strong>Semantic search not available</strong>
+    <p class="text-muted" style="margin: 0.5rem 0 0;">No document embeddings found. Run <code>python -m share_scout embed</code> to generate embeddings first.</p>
+</div>
+{% else %}
+<div class="card" style="margin-bottom: 1rem;">
+    <form method="post" action="{{ url_for('ask') }}">
+        <div style="display: flex; gap: 0.5rem;">
+            <input
+                type="text"
+                name="question"
+                placeholder="Ask a question about your documents..."
+                value="{{ question or '' }}"
+                style="flex: 1; padding: 0.5rem 0.75rem; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font-size: 1rem;"
+                autofocus
+            >
+            <button type="submit" class="btn" style="background: var(--primary); color: #fff; border: none; padding: 0.5rem 1.25rem; border-radius: 4px; cursor: pointer; font-size: 1rem;">Ask</button>
+        </div>
+    </form>
+</div>
+
+{% if answer %}
+<div class="card" style="margin-bottom: 1rem;">
+    <h3 style="margin-top: 0;">Answer</h3>
+    <div style="white-space: pre-wrap; line-height: 1.6;">{{ answer }}</div>
+</div>
+
+{% if sources %}
+<div class="card">
+    <h3 style="margin-top: 0;">Sources ({{ sources|length }})</h3>
+    {% for s in sources %}
+    <div style="margin-bottom: 1rem; padding-bottom: 0.75rem; {% if not loop.last %}border-bottom: 1px solid var(--border);{% endif %}">
+        <div style="display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.4rem;">
+            <a href="{{ url_for('file_detail', file_id=s.file_id) }}"><strong>{{ s.filename }}</strong></a>
+            <span class="text-muted" style="font-size: 0.85rem;">{{ s.path | subpath }}</span>
+            {% if s.distance is not none %}
+            <span class="score score-medium" style="font-size: 0.75rem; margin-left: auto;">dist: {{ "%.3f"|format(s.distance) }}</span>
+            {% endif %}
+        </div>
+        {% if s.chunk_text %}
+        <details style="margin-top: 0.3rem;">
+            <summary class="text-muted" style="font-size: 0.85rem; cursor: pointer;">Show excerpt</summary>
+            <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 0.5rem; margin-top: 0.4rem; max-height: 200px; overflow: auto; font-size: 0.8rem; white-space: pre-wrap; word-break: break-word;">{{ s.chunk_text[:1000] }}</pre>
+        </details>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}
