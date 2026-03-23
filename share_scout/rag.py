@@ -17,16 +17,40 @@ MAX_DISTANCE = 0.95
 
 
 
-SYSTEM_MESSAGE = (
-    "You are a document search assistant. You answer questions using ONLY the provided document excerpts. "
-    "You must respond in English."
+SYSTEM_MESSAGE_QUERY = (
+    "You summarize documents. Respond in English. "
+    "Use ONLY the text provided. Add nothing from your own knowledge."
+)
+
+SYSTEM_MESSAGE_CHAT = (
+    "You are a document search assistant. You answer questions using the provided document excerpts. "
+    "You may use your own knowledge to explain or contextualize, but clearly distinguish "
+    "between what comes from the documents and what is your own knowledge. "
+    "Respond in English."
+)
+
+QUERY_RULES = (
+    "## STRICT RULES\n"
+    "- Use ONLY the document excerpts below. Do NOT add any outside knowledge.\n"
+    "- If the excerpts don't answer the question, say exactly: "
+    "'The indexed documents don't contain information about this.'\n"
+    "- Cite the source filename for each fact.\n"
+    "- Be concise and factual. No speculation.\n\n"
+)
+
+CHAT_RULES = (
+    "## RULES\n"
+    "- Prefer information from the document excerpts below.\n"
+    "- You may add context from your own knowledge, but mark it clearly as '[my knowledge]'.\n"
+    "- Cite the source filename for facts from the excerpts.\n\n"
 )
 
 
 def ask(config: dict, catalog, question: str, top_k: int = 5,
-        history: list[dict] = None) -> dict:
+        history: list[dict] = None, mode: str = "query") -> dict:
     """Answer a question using RAG over the document catalog.
 
+    mode: "query" (strict, excerpts only) or "chat" (excerpts + model knowledge)
     Returns dict with: answer, sources, and debug (timing + pipeline details).
     """
     import time
@@ -42,6 +66,7 @@ def ask(config: dict, catalog, question: str, top_k: int = 5,
             "chat_provider": get_llm_provider(config),
             "top_k": top_k,
             "max_distance": MAX_DISTANCE,
+            "mode": mode,
             "history_turns": len(history) if history else 0,
         },
     }
@@ -104,18 +129,16 @@ def ask(config: dict, catalog, question: str, top_k: int = 5,
         )
 
     excerpts_text = "\n\n".join(excerpt_blocks)
+    rules = QUERY_RULES if mode == "query" else CHAT_RULES
     user_message = (
-        f"## IMPORTANT RULES\n"
-        f"- Answer ONLY using the document excerpts below. Do NOT use your own knowledge.\n"
-        f"- If the excerpts don't contain the answer, say: 'The indexed documents don't contain information about this.'\n"
-        f"- Cite the source filename for each fact.\n"
-        f"- Be concise and factual.\n\n"
+        f"{rules}"
         f"## Document Excerpts\n\n{excerpts_text}\n\n"
         f"## Question\n{question}"
     )
 
     # 5. Build messages with conversation history
-    messages = [{"role": "system", "content": SYSTEM_MESSAGE}]
+    system_msg = SYSTEM_MESSAGE_QUERY if mode == "query" else SYSTEM_MESSAGE_CHAT
+    messages = [{"role": "system", "content": system_msg}]
     if history:
         for turn in history[-6:]:
             messages.append({"role": turn["role"], "content": turn["content"]})

@@ -579,6 +579,7 @@ def create_app(config: dict) -> Flask:
             sources = []
             debug = None
             history = flask_session.get("ask_history", [])
+            mode = flask_session.get("ask_mode", "query")
 
             if request.method == "POST":
                 action = request.form.get("action", "ask")
@@ -587,9 +588,17 @@ def create_app(config: dict) -> Flask:
                     flask_session.pop("ask_history", None)
                     return redirect(url_for("ask"))
 
+                if action == "set_mode":
+                    mode = request.form.get("mode", "query")
+                    flask_session["ask_mode"] = mode
+                    return redirect(url_for("ask"))
+
                 question = request.form.get("question", "").strip()
+                mode = request.form.get("mode", mode)
+                flask_session["ask_mode"] = mode
+
                 if question and has_embeddings:
-                    result = rag_ask(config, cat, question, history=history)
+                    result = rag_ask(config, cat, question, history=history, mode=mode)
                     answer = result.get("answer", "")
                     sources = result.get("sources", [])
                     debug = result.get("debug")
@@ -607,6 +616,7 @@ def create_app(config: dict) -> Flask:
                 sources=sources,
                 history=history,
                 debug=debug,
+                mode=mode,
             )
         finally:
             cat.close()

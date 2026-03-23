@@ -39,7 +39,8 @@
 {# ── Question Input ── #}
 <div class="card" style="margin-bottom: 1rem;">
     <form method="post" action="{{ url_for('ask') }}" id="ask-form">
-        <div style="display: flex; gap: 0.5rem;">
+        <input type="hidden" name="mode" value="{{ mode or 'query' }}">
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
             <input
                 type="text"
                 name="question"
@@ -47,10 +48,45 @@
                 style="flex: 1; padding: 0.5rem 0.75rem; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font-size: 1rem;"
                 autofocus
             >
+            <div id="mode-toggle" style="display: flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; font-size: 0.8rem; flex-shrink: 0;">
+                <button type="button" data-mode="query"
+                    style="padding: 0.4rem 0.6rem; border: none; cursor: pointer; {{ 'background: #6f42c1; color: #fff;' if (mode or 'query') == 'query' else 'background: var(--surface); color: var(--text-muted);' }}"
+                    title="Query mode: answers strictly from documents only">Query</button>
+                <button type="button" data-mode="chat"
+                    style="padding: 0.4rem 0.6rem; border: none; border-left: 1px solid var(--border); cursor: pointer; {{ 'background: #6f42c1; color: #fff;' if (mode or 'query') == 'chat' else 'background: var(--surface); color: var(--text-muted);' }}"
+                    title="Chat mode: documents + model's own knowledge">Chat</button>
+            </div>
             <button type="submit" class="btn" id="ask-btn" style="background: var(--primary); color: #fff; border: none; padding: 0.5rem 1.25rem; border-radius: 4px; cursor: pointer; font-size: 1rem;">Ask</button>
+        </div>
+        <div class="text-muted" style="font-size: 0.75rem; margin-top: 0.4rem;">
+            {{ 'Query: answers only from indexed documents. No model knowledge.' if (mode or 'query') == 'query' else 'Chat: documents + model knowledge. Model additions marked [my knowledge].' }}
         </div>
     </form>
 </div>
+<script>
+(function() {
+    var modeInput = document.querySelector('input[name="mode"]');
+    var buttons = document.querySelectorAll('#mode-toggle button');
+    buttons.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            modeInput.value = this.dataset.mode;
+            buttons.forEach(function(b) {
+                b.style.background = 'var(--surface)';
+                b.style.color = 'var(--text-muted)';
+            });
+            this.style.background = '#6f42c1';
+            this.style.color = '#fff';
+            // Update hint text
+            var hint = document.querySelector('.text-muted[style*="0.75rem"]');
+            if (hint) {
+                hint.textContent = this.dataset.mode === 'query'
+                    ? 'Query: answers only from indexed documents. No model knowledge.'
+                    : 'Chat: documents + model knowledge. Model additions marked [my knowledge].';
+            }
+        });
+    });
+})();
+</script>
 <script>
 document.getElementById('ask-form').addEventListener('submit', function() {
     document.getElementById('ask-btn').textContent = 'Thinking...';
