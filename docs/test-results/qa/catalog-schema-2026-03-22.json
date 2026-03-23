@@ -1,0 +1,12 @@
+{
+  "scenario_id": "catalog-schema",
+  "passed": true,
+  "scores": {
+    "correctness": 10,
+    "robustness": 9,
+    "data_integrity": 10,
+    "overall": 9.75
+  },
+  "summary": "All five required criteria and both bonus criteria met. Schema initializes correctly with all tables, sqlite-vec loads, embedding stats return correct structure, empty-DB state reported accurately.",
+  "ran_at": "2026-03-22T21:50:00"
+}
