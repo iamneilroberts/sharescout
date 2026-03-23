@@ -184,6 +184,20 @@ def run_crawl(config: dict, rules: dict, dry_run: bool = False):
 
             ckpt.complete()
 
+            # ── Phase 3: Embedding (optional) ──
+            embedding_model = config.get("ollama", {}).get("embedding_model")
+            if embedding_model:
+                try:
+                    from .llm_client import check_embedding_model
+                    if check_embedding_model(config):
+                        logger.info("Phase 3: Generating embeddings (model: %s)...", embedding_model)
+                        from .embedder import run_embed
+                        run_embed(config)
+                    else:
+                        logger.info("Phase 3: Embedding model '%s' not available — skipping", embedding_model)
+                except Exception as e:
+                    logger.warning("Phase 3: Embedding failed — %s (crawl data is safe)", e)
+
             # Report files with unprocessed images
             no_vision_stats = catalog.get_unprocessed_image_stats()
             if no_vision_stats["files_with_images"] > 0 and no_vision_stats["total_skipped"] > 0:
