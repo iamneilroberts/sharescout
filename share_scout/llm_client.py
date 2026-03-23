@@ -127,13 +127,18 @@ def analyze_document(file_meta: dict, text_sample: str,
     cats = categories or DEFAULT_CATEGORIES
     length = summary_length or "2-3 sentences"
 
+    # Escape curly braces in user content to prevent str.format() KeyError
+    # on code files containing { } (Python dicts, JS objects, etc.)
+    safe_text = text_sample.replace("{", "{{").replace("}", "}}")
+    safe_context = context_block.replace("{", "{{").replace("}", "}}")
+
     prompt = template.format(
         filename=file_meta.get("filename", ""),
         path=file_meta.get("path", ""),
         extension=file_meta.get("extension", ""),
         size_bytes=file_meta.get("size_bytes", 0),
-        text_sample=text_sample,
-        context_block=context_block,
+        text_sample=safe_text,
+        context_block=safe_context,
         summary_length=length,
         categories=cats,
     )
@@ -207,13 +212,16 @@ def analyze_document_openai(file_meta: dict, text_sample: str,
     cats = categories or DEFAULT_CATEGORIES
     length = summary_length or "2-3 sentences"
 
+    safe_text = text_sample.replace("{", "{{").replace("}", "}}")
+    safe_context = context_block.replace("{", "{{").replace("}", "}}")
+
     prompt = template.format(
         filename=file_meta.get("filename", ""),
         path=file_meta.get("path", ""),
         extension=file_meta.get("extension", ""),
         size_bytes=file_meta.get("size_bytes", 0),
-        text_sample=text_sample,
-        context_block=context_block,
+        text_sample=safe_text,
+        context_block=safe_context,
         summary_length=length,
         categories=cats,
     )

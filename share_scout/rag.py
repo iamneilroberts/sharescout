@@ -11,6 +11,11 @@ from .llm_client import generate_embedding
 
 logger = logging.getLogger(__name__)
 
+# Cosine distance threshold — filter out sources above this (lower = more similar)
+# 0.0 = identical, 1.0 = orthogonal, 2.0 = opposite
+MAX_DISTANCE = 0.95
+
+
 
 def ask(config: dict, catalog, question: str, top_k: int = 5) -> dict:
     """Answer a question using RAG over the document catalog.
@@ -42,6 +47,10 @@ def ask(config: dict, catalog, question: str, top_k: int = 5) -> dict:
 
     # 2. KNN search
     results = catalog.vector_search(query_vec, limit=top_k)
+
+    # Filter out poor matches — cosine distance > 1.0 means less than 0% similarity
+    results = [r for r in results if r.get("distance", 999) < MAX_DISTANCE]
+
     if not results:
         logger.info("RAG: no relevant documents found for question")
         return {

@@ -13,8 +13,9 @@ from flask import Flask, render_template, request, abort, redirect, url_for, jso
 from ..catalog import Catalog
 
 
-# Module-level crawl process tracking
+# Module-level process tracking
 _crawl_process = None
+_embed_process = None
 
 
 def _get_ollama_status(config: dict) -> dict:
@@ -266,6 +267,49 @@ def create_app(config: dict) -> Flask:
                 "per_minute": rate.get("per_minute", 0),
                 "eta_hours": rate.get("eta_hours", 0),
             })
+        finally:
+            cat.close()
+
+    # -- Embed control routes --
+
+    def _is_embed_running():
+        """Check if an embed process is running."""
+        global _embed_process
+        if _embed_process is not None and _embed_process.poll() is None:
+            return True
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", "share_scout.*embed"],
+                capture_output=True, text=True,
+            )
+            pids = [p.strip() for p in result.stdout.strip().split("\n") if p.strip()]
+            own_pid = str(os.getpid())
+            return len([p for p in pids if p != own_pid]) > 0
+        except Exception:
+            return False
+
+    @app.route("/embed/start", methods=["POST"])
+    def embed_start():
+        global _embed_process
+        if _is_embed_running():
+            return redirect(url_for("dashboard"))
+        venv_python = os.path.join(os.path.dirname(sys.executable), "python")
+        _embed_process = subprocess.Popen(
+            [venv_python, "-m", "share_scout", "embed"],
+            cwd=config.get("_project_root", os.getcwd()),
+            stdout=open("/tmp/sharescout-embed.log", "w"),
+            stderr=subprocess.STDOUT,
+        )
+        return redirect(url_for("dashboard"))
+
+    @app.route("/embed/status")
+    def embed_status_api():
+        """JSON endpoint for polling embed status."""
+        running = _is_embed_running()
+        cat = get_catalog()
+        try:
+            stats = cat.get_embedding_stats()
+            return jsonify({"running": running, **stats})
         finally:
             cat.close()
 

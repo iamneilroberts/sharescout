@@ -144,9 +144,16 @@
             </span>
             {% endif %}
         </div>
-        {% if embedding_stats.files_with_embeddings > 0 %}
-        <a href="{{ url_for('ask') }}" class="btn btn-sm" style="background: var(--primary); font-size: 0.75rem;">Ask AI</a>
-        {% endif %}
+        <div style="display: flex; gap: 0.5rem;">
+            {% if embedding_model and embedding_stats.vec_available and embedding_stats.files_without_embeddings > 0 %}
+            <form method="post" action="{{ url_for('embed_start') }}" style="display: inline;">
+                <button type="submit" class="btn btn-sm" style="background: #198754; font-size: 0.75rem;">Generate Embeddings</button>
+            </form>
+            {% endif %}
+            {% if embedding_stats.files_with_embeddings > 0 %}
+            <a href="{{ url_for('ask') }}" class="btn btn-sm" style="background: var(--primary); font-size: 0.75rem;">Ask AI</a>
+            {% endif %}
+        </div>
     </div>
 
     {% if not embedding_stats.vec_available %}
