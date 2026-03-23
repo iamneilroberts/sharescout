@@ -36,75 +36,77 @@ def run_embed(config: dict) -> None:
     db_path = config.get("catalog", {}).get("db_path", "share_scout.db")
 
     catalog = Catalog(db_path)
-    unembedded = catalog.get_unembedded_files()
-    total = len(unembedded)
+    with catalog.connection():
+        catalog.init_schema()
+        unembedded = catalog.get_unembedded_files()
+        total = len(unembedded)
 
-    if total == 0:
-        logger.info("No files require embedding — catalog is up to date")
-        return
+        if total == 0:
+            logger.info("No files require embedding — catalog is up to date")
+            return
 
-    logger.info("Starting embedding run: %d files to process (model: %s)", total, embedding_model)
+        logger.info("Starting embedding run: %d files to process (model: %s)", total, embedding_model)
 
-    embedded_count = 0
-    batch_count = 0
+        embedded_count = 0
+        batch_count = 0
 
-    for file_record in unembedded:
-        file_id = file_record["id"]
-        filename = file_record.get("filename", "<unknown>")
+        for file_record in unembedded:
+            file_id = file_record["id"]
+            filename = file_record.get("filename", "<unknown>")
 
-        # Check for chunk summaries first
-        chunks = catalog.get_chunk_summaries(file_id)
+            # Check for chunk summaries first
+            chunks = catalog.get_chunk_summaries(file_id)
 
-        if chunks:
-            # Chunked file — embed each chunk's text
-            file_ok = True
-            for chunk in chunks:
-                chunk_text = chunk.get("chunk_text", "")
-                if not chunk_text:
-                    logger.debug("Skipping empty chunk %d for file %s", chunk["chunk_index"], filename)
+            if chunks:
+                # Chunked file — embed each chunk's text
+                file_ok = True
+                for chunk in chunks:
+                    chunk_text = chunk.get("chunk_text", "")
+                    if not chunk_text:
+                        logger.debug("Skipping empty chunk %d for file %s", chunk["chunk_index"], filename)
+                        continue
+                    vector = generate_embedding(config, chunk_text)
+                    if vector is None:
+                        logger.warning("Failed to embed chunk %d of %s — skipping file", chunk["chunk_index"], filename)
+                        file_ok = False
+                        break
+                    catalog.insert_embedding(
+                        file_id=file_id,
+                        chunk_index=chunk["chunk_index"],
+                        source="chunk_text",
+                        vector=vector,
+                        model=embedding_model,
+                    )
+                if not file_ok:
                     continue
-                vector = generate_embedding(config, chunk_text)
+            else:
+                # Non-chunked file — embed text_sample
+                text_sample = file_record.get("text_sample", "")
+                if not text_sample:
+                    logger.debug("Skipping file %s — no text_sample available", filename)
+                    continue
+                vector = generate_embedding(config, text_sample)
                 if vector is None:
-                    logger.warning("Failed to embed chunk %d of %s — skipping file", chunk["chunk_index"], filename)
-                    file_ok = False
-                    break
+                    logger.warning("Failed to embed %s — skipping", filename)
+                    continue
                 catalog.insert_embedding(
                     file_id=file_id,
-                    chunk_index=chunk["chunk_index"],
-                    source="chunk_text",
+                    chunk_index=None,
+                    source="text_sample",
                     vector=vector,
                     model=embedding_model,
                 )
-            if not file_ok:
-                continue
-        else:
-            # Non-chunked file — embed text_sample
-            text_sample = file_record.get("text_sample", "")
-            if not text_sample:
-                logger.debug("Skipping file %s — no text_sample available", filename)
-                continue
-            vector = generate_embedding(config, text_sample)
-            if vector is None:
-                logger.warning("Failed to embed %s — skipping", filename)
-                continue
-            catalog.insert_embedding(
-                file_id=file_id,
-                chunk_index=None,
-                source="text_sample",
-                vector=vector,
-                model=embedding_model,
-            )
 
-        embedded_count += 1
-        batch_count += 1
+            embedded_count += 1
+            batch_count += 1
 
-        if batch_count >= batch_size:
+            if batch_count >= batch_size:
+                catalog.commit()
+                batch_count = 0
+                logger.info("Embedded %d/%d files...", embedded_count, total)
+
+        # Final commit for any remaining files
+        if batch_count > 0:
             catalog.commit()
-            batch_count = 0
-            logger.info("Embedded %d/%d files...", embedded_count, total)
 
-    # Final commit for any remaining files
-    if batch_count > 0:
-        catalog.commit()
-
-    logger.info("Embedding complete: %d/%d files embedded", embedded_count, total)
+        logger.info("Embedding complete: %d/%d files embedded", embedded_count, total)
