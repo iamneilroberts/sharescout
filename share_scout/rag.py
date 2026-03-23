@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Cosine distance threshold — filter out sources above this (lower = more similar)
 # 0.0 = identical, 1.0 = orthogonal, 2.0 = opposite
-MAX_DISTANCE = 0.95
+MAX_DISTANCE = 0.90
 
 
 
