@@ -156,6 +156,9 @@ def ask(config: dict, catalog, question: str, top_k: int = 5,
     # 6. Call chat model
     t0 = time.time()
     answer = _chat(config, messages)
+    # Strip leading non-ASCII garbage tokens (gemma3 CJK/Bengali leak)
+    import re
+    answer = re.sub(r'^[^\x00-\x7F]+[,.\s]*', '', answer).strip()
     chat_ms = round((time.time() - t0) * 1000)
     debug["timings"]["chat_ms"] = chat_ms
     debug["answer_chars"] = len(answer)
