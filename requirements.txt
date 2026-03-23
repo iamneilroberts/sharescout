@@ -7,3 +7,5 @@ python-pptx
 flask
 chardet
 httpx
+sqlite-vec
+numpy

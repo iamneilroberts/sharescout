@@ -52,6 +52,10 @@ def main():
         "--claude-model", default="haiku",
         help="Claude model to use (default: haiku — cheapest, appropriate for simulating 7B)",
     )
+    proxy_parser.add_argument(
+        "--real", action="store_true",
+        help="Real mode: use full Claude quality instead of simulating Mistral 7B",
+    )
 
     args = parser.parse_args()
 
@@ -105,6 +109,7 @@ def main():
             port=args.port,
             claude_model=args.claude_model,
             verbose=args.verbose,
+            real_mode=args.real,
         )
 
 
