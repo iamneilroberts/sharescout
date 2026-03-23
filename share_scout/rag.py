@@ -18,8 +18,9 @@ MAX_DISTANCE = 0.90
 
 
 SYSTEM_MESSAGE_QUERY = (
-    "You summarize documents. Respond in English. "
-    "Use ONLY the text provided. Add nothing from your own knowledge."
+    "You select relevant sentences from numbered text. "
+    "Output ONLY the numbers of relevant sentences, like: 1, 5, 12. "
+    "If none are relevant, output: NONE"
 )
 
 SYSTEM_MESSAGE_CHAT = (
@@ -30,12 +31,10 @@ SYSTEM_MESSAGE_CHAT = (
 )
 
 QUERY_RULES = (
-    "## STRICT RULES\n"
-    "- Use ONLY the document excerpts below. Do NOT add any outside knowledge.\n"
-    "- If the excerpts don't answer the question, say exactly: "
-    "'The indexed documents don't contain information about this.'\n"
-    "- Cite the source filename for each fact.\n"
-    "- Be concise and factual. No speculation.\n\n"
+    "Below are numbered sentences extracted from documents. "
+    "Output ONLY the numbers of sentences that answer the question. "
+    "Format: just comma-separated numbers, nothing else. "
+    "If no sentence answers the question, output: NONE\n\n"
 )
 
 CHAT_RULES = (
@@ -119,22 +118,59 @@ def ask(config: dict, catalog, question: str, top_k: int = 5,
             source["chunk_text"] = analysis["text_sample"] if analysis else ""
 
     # 4. Build prompt with excerpts
-    excerpt_blocks = []
-    for i, source in enumerate(results, start=1):
-        filename = source.get("filename", "unknown")
-        path = source.get("path", "")
-        chunk_text = source.get("chunk_text") or ""
-        excerpt_blocks.append(
-            f"### Source {i}: {filename} (path: {path})\n{chunk_text}"
-        )
+    # In query mode, number each sentence for extractive selection.
+    # In chat mode, pass raw excerpts for freeform answering.
+    import re as _re
 
-    excerpts_text = "\n\n".join(excerpt_blocks)
-    rules = QUERY_RULES if mode == "query" else CHAT_RULES
-    user_message = (
-        f"{rules}"
-        f"## Document Excerpts\n\n{excerpts_text}\n\n"
-        f"## Question\n{question}"
-    )
+    if mode == "query":
+        # Split excerpts into numbered sentences with source tracking
+        numbered_sentences = []  # (sentence_num, source_idx, sentence_text)
+        sentence_num = 0
+        for i, source in enumerate(results):
+            chunk_text = source.get("chunk_text") or ""
+            # Split on sentence boundaries (., !, ?) or newlines
+            sentences = _re.split(r'(?<=[.!?])\s+|\n+', chunk_text)
+            for sent in sentences:
+                sent = sent.strip()
+                if len(sent) < 10:  # skip tiny fragments
+                    continue
+                if sent.startswith('#'):  # skip markdown headers
+                    continue
+                if _re.match(r'^[-*]\s*$', sent):  # skip empty list items
+                    continue
+                if _re.match(r'^[\w-]+:\s*\S+$', sent):  # skip frontmatter (key: value)
+                    continue
+                if sent.startswith('<') and sent.endswith('/>'):  # skip XML/JSX tags
+                    continue
+                sentence_num += 1
+                numbered_sentences.append((sentence_num, i, sent))
+
+        numbered_text = "\n".join(
+            f"[{num}] {sent}" for num, _, sent in numbered_sentences
+        )
+        excerpts_text = numbered_text
+        rules = QUERY_RULES
+        user_message = (
+            f"{rules}"
+            f"## Numbered Sentences\n\n{numbered_text}\n\n"
+            f"## Question\n{question}"
+        )
+    else:
+        excerpt_blocks = []
+        for i, source in enumerate(results, start=1):
+            filename = source.get("filename", "unknown")
+            path = source.get("path", "")
+            chunk_text = source.get("chunk_text") or ""
+            excerpt_blocks.append(
+                f"### Source {i}: {filename} (path: {path})\n{chunk_text}"
+            )
+        excerpts_text = "\n\n".join(excerpt_blocks)
+        rules = CHAT_RULES
+        user_message = (
+            f"{rules}"
+            f"## Document Excerpts\n\n{excerpts_text}\n\n"
+            f"## Question\n{question}"
+        )
 
     # 5. Build messages with conversation history
     system_msg = SYSTEM_MESSAGE_QUERY if mode == "query" else SYSTEM_MESSAGE_CHAT
@@ -155,9 +191,38 @@ def ask(config: dict, catalog, question: str, top_k: int = 5,
 
     # 6. Call chat model
     t0 = time.time()
-    answer = _chat(config, messages)
+    raw_answer = _chat(config, messages)
     # Strip leading non-ASCII garbage tokens (gemma3 CJK/Bengali leak)
     import re
+
+    # In query mode, convert selected sentence numbers back to quoted text
+    if mode == "query" and numbered_sentences:
+        debug["raw_llm_response"] = raw_answer
+        raw_answer = re.sub(r'^[^\x00-\x7F]+[,.\s]*', '', raw_answer).strip()
+        # Parse numbers from LLM response — only accept numbers in valid range
+        max_num = len(numbered_sentences)
+        selected_nums = set()
+        for match in re.finditer(r'\b(\d+)\b', raw_answer):
+            n = int(match.group())
+            if 1 <= n <= max_num:
+                selected_nums.add(n)
+        # Cap at 5 selections to keep answers focused
+        if len(selected_nums) > 5:
+            selected_nums = set(sorted(selected_nums)[:5])
+
+        if not selected_nums or raw_answer.upper().startswith("NONE"):
+            answer = "The indexed documents don't contain information about this."
+        else:
+            # Reconstruct answer from selected sentences with source attribution
+            quote_lines = []
+            for num, src_idx, sent in numbered_sentences:
+                if num in selected_nums:
+                    filename = results[src_idx].get("filename", "unknown")
+                    quote_lines.append(f"> {sent}\n> — *{filename}*")
+            answer = "\n\n".join(quote_lines) if quote_lines else \
+                "The indexed documents don't contain information about this."
+    else:
+        answer = raw_answer
     answer = re.sub(r'^[^\x00-\x7F]+[,.\s]*', '', answer).strip()
     chat_ms = round((time.time() - t0) * 1000)
     debug["timings"]["chat_ms"] = chat_ms
