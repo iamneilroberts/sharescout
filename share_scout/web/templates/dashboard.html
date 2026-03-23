@@ -84,53 +84,22 @@
         </div>
         {% endif %}
     </div>
-</div>
 
-{# ── Ollama Status ── #}
-<div class="card" style="margin-bottom: 1rem; border-left: 4px solid {{ '#198754' if ollama.reachable and ollama.models else ('#ffc107' if ollama.reachable else '#dc3545') }};">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h3 style="margin-bottom: 0;">Ollama
-            {% if ollama.reachable %}
-                {% if ollama.models %}
-                <span class="score score-high" style="font-size: 0.7rem;">connected</span>
-                {% else %}
-                <span class="score score-medium" style="font-size: 0.7rem;">idle (no model loaded)</span>
-                {% endif %}
-            {% else %}
-            <span class="score score-low" style="font-size: 0.7rem;">unreachable</span>
-            {% endif %}
-        </h3>
-    </div>
-    {% if ollama.error %}
-    <p class="text-muted" style="margin-top: 0.5rem; font-size: 0.85rem;">{{ ollama.error }}</p>
-    {% endif %}
-    {% for m in ollama.models %}
-    <div style="display: flex; gap: 2rem; flex-wrap: wrap; margin-top: 0.5rem; font-size: 0.9rem;">
-        <div><strong>{{ m.name }}</strong></div>
-        <div>{{ m.parameter_size }} · {{ m.quantization }}</div>
-        <div>VRAM: {{ m.vram_gb }} GB ({{ m.gpu_percent }}% GPU)</div>
-        <div>Context: {{ "{:,}".format(m.context_length) }} tokens</div>
-        <div class="text-muted">Expires: {{ m.expires_at }}</div>
-    </div>
-    {% endfor %}
-</div>
-
-{% if vision_gaps and vision_gaps.files_with_images > 0 %}
-<div class="card" style="margin-bottom: 1rem; border-left: 4px solid #ffc107; padding: 0.75rem 1rem;">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-            <strong style="color: #ffc107;">Images Not Processed</strong>
-            <span class="text-muted" style="margin-left: 0.5rem; font-size: 0.85rem;">
-                {{ "{:,}".format(vision_gaps.total_skipped) }} image{{ "s" if vision_gaps.total_skipped != 1 }} across {{ "{:,}".format(vision_gaps.files_with_images) }} file{{ "s" if vision_gaps.files_with_images != 1 }} skipped — no vision model configured
-            </span>
+    {# Analysis progress bar #}
+    {% set analyzable = stats.analyzed + stats.extracted %}
+    {% if analyzable > 0 %}
+    <div style="margin-top: 0.75rem;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.3rem;">
+            <span>Analysis Progress</span>
+            <span>{{ "{:,}".format(stats.analyzed) }} / {{ "{:,}".format(analyzable) }} files analyzed</span>
         </div>
-        <a href="{{ url_for('settings') }}" class="btn btn-sm" style="background: #6c757d; font-size: 0.75rem;">Configure Vision</a>
+        <div style="background: var(--progress-track, #2a2a2a); border-radius: 4px; height: 12px; overflow: hidden;">
+            {% set ana_pct = (stats.analyzed / analyzable * 100) if analyzable > 0 else 0 %}
+            <div style="width: {{ ana_pct }}%; background: #198754; height: 100%; transition: width 0.5s;"></div>
+        </div>
     </div>
-    <p class="text-muted" style="margin: 0.3rem 0 0; font-size: 0.8rem;">
-        Set <code>llm.vision_model</code> in your domain preset (e.g. <code>llava</code>, <code>llama3.2-vision</code>) and re-crawl to caption embedded images.
-    </p>
+    {% endif %}
 </div>
-{% endif %}
 
 {# ── Embedding Status ── #}
 {% if embedding_stats %}
@@ -186,6 +155,52 @@
     </p>
     {% endif %}
     {% endif %}
+</div>
+{% endif %}
+
+{# ── Ollama Status ── #}
+<div class="card" style="margin-bottom: 1rem; border-left: 4px solid {{ '#198754' if ollama.reachable and ollama.models else ('#ffc107' if ollama.reachable else '#dc3545') }};">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin-bottom: 0;">Ollama
+            {% if ollama.reachable %}
+                {% if ollama.models %}
+                <span class="score score-high" style="font-size: 0.7rem;">connected</span>
+                {% else %}
+                <span class="score score-medium" style="font-size: 0.7rem;">idle (no model loaded)</span>
+                {% endif %}
+            {% else %}
+            <span class="score score-low" style="font-size: 0.7rem;">unreachable</span>
+            {% endif %}
+        </h3>
+    </div>
+    {% if ollama.error %}
+    <p class="text-muted" style="margin-top: 0.5rem; font-size: 0.85rem;">{{ ollama.error }}</p>
+    {% endif %}
+    {% for m in ollama.models %}
+    <div style="display: flex; gap: 2rem; flex-wrap: wrap; margin-top: 0.5rem; font-size: 0.9rem;">
+        <div><strong>{{ m.name }}</strong></div>
+        <div>{{ m.parameter_size }} · {{ m.quantization }}</div>
+        <div>VRAM: {{ m.vram_gb }} GB ({{ m.gpu_percent }}% GPU)</div>
+        <div>Context: {{ "{:,}".format(m.context_length) }} tokens</div>
+        <div class="text-muted">Expires: {{ m.expires_at }}</div>
+    </div>
+    {% endfor %}
+</div>
+
+{% if vision_gaps and vision_gaps.files_with_images > 0 %}
+<div class="card" style="margin-bottom: 1rem; border-left: 4px solid #ffc107; padding: 0.75rem 1rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong style="color: #ffc107;">Images Not Processed</strong>
+            <span class="text-muted" style="margin-left: 0.5rem; font-size: 0.85rem;">
+                {{ "{:,}".format(vision_gaps.total_skipped) }} image{{ "s" if vision_gaps.total_skipped != 1 }} across {{ "{:,}".format(vision_gaps.files_with_images) }} file{{ "s" if vision_gaps.files_with_images != 1 }} skipped — no vision model configured
+            </span>
+        </div>
+        <a href="{{ url_for('settings') }}" class="btn btn-sm" style="background: #6c757d; font-size: 0.75rem;">Configure Vision</a>
+    </div>
+    <p class="text-muted" style="margin: 0.3rem 0 0; font-size: 0.8rem;">
+        Set <code>llm.vision_model</code> in your domain preset (e.g. <code>llava</code>, <code>llama3.2-vision</code>) and re-crawl to caption embedded images.
+    </p>
 </div>
 {% endif %}
 
