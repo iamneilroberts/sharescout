@@ -368,7 +368,9 @@ def check_embedding_model(config: dict) -> bool:
         client = ollama.Client(host=endpoint, timeout=5)
         models = client.list()
         model_names = [m["model"] for m in models.get("models", [])]
-        return embedding_model in model_names
+        # Match with or without :latest tag
+        return (embedding_model in model_names
+                or f"{embedding_model}:latest" in model_names)
     except Exception:
         return False
 
