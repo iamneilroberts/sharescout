@@ -254,7 +254,22 @@
         <span><span style="display: inline-block; width: 10px; height: 10px; background: #198754; border-radius: 2px;"></span> Analyzed {{ ana_pct | round(1) }}%</span>
         <span><span style="display: inline-block; width: 10px; height: 10px; background: #0d6efd; border-radius: 2px;"></span> Extracted {{ ext_pct | round(1) }}%</span>
         <span><span style="display: inline-block; width: 10px; height: 10px; background: #6c757d; border-radius: 2px;"></span> Skipped {{ skip_pct | round(1) }}%</span>
+        {% if embedding_stats and embedding_stats.vec_available %}
+        <span style="margin-left: auto;"><span style="display: inline-block; width: 10px; height: 10px; background: #6f42c1; border-radius: 2px;"></span> Embedded {{ "{:,}".format(embedding_stats.files_with_embeddings) }} ({{ "{:,}".format(embedding_stats.total_embeddings) }} vectors)</span>
+        {% endif %}
     </div>
+    {% if embedding_stats and embedding_stats.vec_available and stats.analyzed > 0 %}
+    <div style="margin-top: 0.5rem;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.2rem;">
+            <span>Embedding Coverage</span>
+            <span>{{ "{:,}".format(embedding_stats.files_with_embeddings) }} / {{ "{:,}".format(stats.analyzed) }} analyzed files embedded</span>
+        </div>
+        <div style="background: #2a2a2a; border-radius: 4px; height: 10px; overflow: hidden;">
+            {% set emb_cov = (embedding_stats.files_with_embeddings / stats.analyzed * 100) if stats.analyzed > 0 else 0 %}
+            <div style="width: {{ emb_cov }}%; background: #6f42c1; height: 100%; transition: width 0.5s;" title="Embedded: {{ embedding_stats.files_with_embeddings }}"></div>
+        </div>
+    </div>
+    {% endif %}
 </div>
 {% endif %}
 
