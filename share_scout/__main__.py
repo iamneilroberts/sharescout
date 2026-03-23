@@ -42,6 +42,12 @@ def main():
     web_parser.add_argument("--port", type=int, help="Web server port")
     web_parser.add_argument("--db-path", help="SQLite database path")
 
+    # embed subcommand
+    embed_parser = sub.add_parser("embed", help="Generate embeddings for analyzed catalog files")
+    embed_parser.add_argument("--db-path", help="SQLite database path")
+    embed_parser.add_argument("--ollama-endpoint", help="Ollama API endpoint")
+    embed_parser.add_argument("--embedding-model", help="Ollama embedding model name")
+
     # claude-proxy subcommand
     proxy_parser = sub.add_parser(
         "claude-proxy",
@@ -51,6 +57,10 @@ def main():
     proxy_parser.add_argument(
         "--claude-model", default="haiku",
         help="Claude model to use (default: haiku — cheapest, appropriate for simulating 7B)",
+    )
+    proxy_parser.add_argument(
+        "--real", action="store_true",
+        help="Real mode: use full Claude quality instead of simulating Mistral 7B",
     )
 
     args = parser.parse_args()
@@ -99,12 +109,23 @@ def main():
             debug=True,
         )
 
+    elif args.command == "embed":
+        if args.db_path:
+            config["catalog"]["db_path"] = args.db_path
+        if args.ollama_endpoint:
+            config["ollama"]["endpoint"] = args.ollama_endpoint
+        if args.embedding_model:
+            config.setdefault("ollama", {})["embedding_model"] = args.embedding_model
+        from .embedder import run_embed
+        run_embed(config)
+
     elif args.command == "claude-proxy":
         from .claude_proxy import run_proxy
         run_proxy(
             port=args.port,
             claude_model=args.claude_model,
             verbose=args.verbose,
+            real_mode=args.real,
         )
 
 

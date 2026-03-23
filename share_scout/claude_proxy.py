@@ -43,13 +43,22 @@ You MUST respond with ONLY valid JSON when the user's prompt asks for JSON. \
 No markdown fences, no explanation, no preamble — just the raw JSON object."""
 
 
-def create_proxy_app(claude_model: str = "haiku", verbose: bool = False) -> Flask:
+REAL_SYSTEM_PROMPT = "Respond with only valid JSON when asked for JSON. No markdown fences."
+
+REAL_MODE_CONTEXT = 200_000
+SIMULATED_MODE_CONTEXT = 8192
+
+
+def create_proxy_app(claude_model: str = "haiku", verbose: bool = False, real_mode: bool = False) -> Flask:
     """Create the Ollama-compatible proxy Flask app."""
     app = Flask(__name__)
 
     # Track request count for stats
     app._request_count = 0
     app._start_time = time.time()
+
+    system_prompt = REAL_SYSTEM_PROMPT if real_mode else MISTRAL_SYSTEM_PROMPT
+    context_length = REAL_MODE_CONTEXT if real_mode else SIMULATED_MODE_CONTEXT
 
     def _call_claude(prompt: str, images: list[str] = None) -> str:
         """Call claude CLI in print mode and return the response text."""
@@ -58,7 +67,7 @@ def create_proxy_app(claude_model: str = "haiku", verbose: bool = False) -> Flas
             "--print",
             "--model", claude_model,
             "--output-format", "text",
-            "--system-prompt", MISTRAL_SYSTEM_PROMPT,
+            "--system-prompt", system_prompt,
         ]
 
         if verbose:
@@ -161,19 +170,20 @@ def create_proxy_app(claude_model: str = "haiku", verbose: bool = False) -> Flas
 
     @app.route("/api/show", methods=["POST"])
     def api_show():
-        """Model info — returns simulated Mistral 7B context window."""
+        """Model info — returns context window based on mode."""
+        param_size = "claude" if real_mode else "7B (simulated)"
         return jsonify({
             "modelfile": "",
-            "parameters": "num_ctx 8192",
+            "parameters": f"num_ctx {context_length}",
             "model_info": {
-                "general.context_length": 8192,
+                "general.context_length": context_length,
                 "general.parameter_count": 7000000000,
             },
             "details": {
                 "parent_model": "",
                 "format": "claude",
                 "family": "claude",
-                "parameter_size": "7B (simulated)",
+                "parameter_size": param_size,
                 "quantization_level": "none",
             },
         })
@@ -181,7 +191,7 @@ def create_proxy_app(claude_model: str = "haiku", verbose: bool = False) -> Flas
     @app.route("/api/ps", methods=["GET"])
     def api_ps():
         """Running models — for web UI status display."""
-        uptime = time.time() - app._start_time
+        param_size = "claude" if real_mode else "7B (simulated)"
         return jsonify({
             "models": [{
                 "name": f"claude-proxy (via {claude_model})",
@@ -190,11 +200,11 @@ def create_proxy_app(claude_model: str = "haiku", verbose: bool = False) -> Flas
                 "size_vram": 0,
                 "digest": "claude-proxy",
                 "details": {
-                    "parameter_size": "7B (simulated)",
+                    "parameter_size": param_size,
                     "quantization_level": "none",
                     "family": "claude",
                 },
-                "context_length": 8192,
+                "context_length": context_length,
                 "expires_at": "",
             }]
         })
@@ -211,7 +221,7 @@ def create_proxy_app(claude_model: str = "haiku", verbose: bool = False) -> Flas
     return app
 
 
-def run_proxy(port: int = 11435, claude_model: str = "haiku", verbose: bool = False):
+def run_proxy(port: int = 11435, claude_model: str = "haiku", verbose: bool = False, real_mode: bool = False):
     """Start the Ollama-compatible proxy server."""
     # Verify claude CLI is available
     try:
@@ -225,11 +235,13 @@ def run_proxy(port: int = 11435, claude_model: str = "haiku", verbose: bool = Fa
         logger.error("'claude' CLI not found. Install Claude Code first: npm install -g @anthropic-ai/claude-code")
         sys.exit(1)
 
-    app = create_proxy_app(claude_model=claude_model, verbose=verbose)
+    app = create_proxy_app(claude_model=claude_model, verbose=verbose, real_mode=real_mode)
+
+    mode_label = "Real mode (full Claude quality)" if real_mode else "Simulated Mistral 7B"
 
     print(f"")
     print(f"  Claude Proxy — Ollama-compatible server")
-    print(f"  Simulating: Mistral 7B (via claude {claude_model})")
+    print(f"  Mode:       {mode_label} (via claude {claude_model})")
     print(f"  Listening:  http://localhost:{port}")
     print(f"")
     print(f"  Configure ShareScout to use this proxy:")

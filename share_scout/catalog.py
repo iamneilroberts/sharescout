@@ -8,6 +8,8 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import numpy as np
+
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS files (
@@ -88,6 +90,18 @@ class Catalog:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
+        self._has_vec = False
+        try:
+            import sqlite_vec
+            self._conn.enable_load_extension(True)
+            sqlite_vec.load(self._conn)
+            self._conn.enable_load_extension(False)
+            self._has_vec = True
+        except (ImportError, AttributeError, sqlite3.OperationalError):
+            try:
+                self._conn.enable_load_extension(False)
+            except (AttributeError, sqlite3.OperationalError):
+                pass
 
     def close(self):
         if self._conn:
@@ -133,6 +147,28 @@ class Catalog:
         self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_chunks_file_id ON chunk_summaries(file_id)"
         )
+
+        # Vector tables — only if sqlite-vec extension loaded
+        if self._has_vec:
+            self._conn.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(
+                    chunk_id INTEGER PRIMARY KEY,
+                    embedding FLOAT[768]
+                )
+            """)
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS embeddings_meta (
+                    id INTEGER PRIMARY KEY,
+                    file_id INTEGER REFERENCES files(id),
+                    chunk_index INTEGER,
+                    source TEXT NOT NULL,
+                    embedding_model TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_emb_file ON embeddings_meta(file_id)"
+            )
 
         # New nullable columns on analyses — try/except since SQLite lacks IF NOT EXISTS for columns
         new_columns = [
@@ -299,6 +335,104 @@ class Catalog:
             (file_id,),
         ).fetchall()
         return {r["chunk_index"] for r in rows}
+
+    # -- Embeddings --
+
+    def insert_embedding(self, file_id: int, chunk_index: int | None,
+                         source: str, vector: list[float], model: str = None) -> int:
+        """Insert an embedding vector and its metadata. Returns the meta id."""
+        if not self._has_vec:
+            raise RuntimeError("sqlite-vec extension not loaded; cannot store embeddings")
+        cur = self._conn.execute(
+            """INSERT INTO embeddings_meta (file_id, chunk_index, source, embedding_model)
+               VALUES (?, ?, ?, ?)""",
+            (file_id, chunk_index, source, model),
+        )
+        meta_id = cur.lastrowid
+        blob = np.array(vector, dtype=np.float32).tobytes()
+        self._conn.execute(
+            "INSERT INTO chunks_vec (chunk_id, embedding) VALUES (?, ?)",
+            (meta_id, blob),
+        )
+        return meta_id
+
+    def vector_search(self, query_vec: list[float], limit: int = 5) -> list[dict]:
+        """KNN vector search. Returns file metadata, chunk text, and distance."""
+        if not self._has_vec:
+            return []
+        blob = np.array(query_vec, dtype=np.float32).tobytes()
+        rows = self._conn.execute(
+            """SELECT cv.chunk_id, cv.distance,
+                      em.file_id, em.chunk_index, em.source,
+                      f.filename, f.path, f.relevance_score,
+                      a.category, a.summary
+               FROM chunks_vec cv
+               JOIN embeddings_meta em ON em.id = cv.chunk_id
+               JOIN files f ON f.id = em.file_id
+               LEFT JOIN analyses a ON a.file_id = em.file_id
+               WHERE cv.embedding MATCH ? AND k = ?
+               ORDER BY cv.distance""",
+            (blob, limit),
+        ).fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            # Resolve chunk text
+            if d["chunk_index"] is not None:
+                chunk_row = self._conn.execute(
+                    "SELECT chunk_text FROM chunk_summaries WHERE file_id = ? AND chunk_index = ?",
+                    (d["file_id"], d["chunk_index"]),
+                ).fetchone()
+                d["chunk_text"] = chunk_row["chunk_text"] if chunk_row else None
+            else:
+                d["chunk_text"] = None
+            results.append(d)
+        return results
+
+    def has_embeddings(self) -> bool:
+        """Return True if any embeddings exist."""
+        if not self._has_vec:
+            return False
+        row = self._conn.execute(
+            "SELECT 1 FROM embeddings_meta LIMIT 1"
+        ).fetchone()
+        return row is not None
+
+    def get_embedding_stats(self) -> dict:
+        """Return counts for dashboard display."""
+        if not self._has_vec:
+            return {"total_embeddings": 0, "files_with_embeddings": 0,
+                    "files_without_embeddings": 0, "vec_available": False}
+        total = self._conn.execute(
+            "SELECT COUNT(*) as cnt FROM embeddings_meta"
+        ).fetchone()["cnt"]
+        with_emb = self._conn.execute(
+            "SELECT COUNT(DISTINCT file_id) as cnt FROM embeddings_meta"
+        ).fetchone()["cnt"]
+        analyzed = self._conn.execute(
+            "SELECT COUNT(*) as cnt FROM files WHERE status = 'analyzed'"
+        ).fetchone()["cnt"]
+        return {
+            "total_embeddings": total,
+            "files_with_embeddings": with_emb,
+            "files_without_embeddings": max(0, analyzed - with_emb),
+            "vec_available": True,
+        }
+
+    def get_unembedded_files(self) -> list[dict]:
+        """Return analyzed files with no embeddings yet."""
+        if not self._has_vec:
+            return []
+        rows = self._conn.execute("""
+            SELECT f.id, f.filename, f.path, f.relevance_score,
+                   a.text_sample, a.summary, a.category
+            FROM files f
+            JOIN analyses a ON a.file_id = f.id
+            WHERE f.status = 'analyzed'
+              AND f.id NOT IN (SELECT DISTINCT file_id FROM embeddings_meta)
+            ORDER BY f.relevance_score DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
 
     def get_analysis(self, file_id: int) -> dict | None:
         row = self._conn.execute(

@@ -26,6 +26,10 @@ ollama:
   endpoint: "http://localhost:11434"
   model: "mistral:7b"       # Any Ollama model — smaller models are faster
   timeout: 120
+  # Semantic search (optional) — omit or set to null to disable embedding entirely
+  embedding_model: "nomic-embed-text"  # Ollama embedding model; enables RAG semantic search
+  embedding_endpoint: null             # Separate Ollama instance for embeddings (defaults to endpoint above)
+                                       # Useful when chat uses a remote proxy but embeddings run locally
 
 # Option B: OpenAI-compatible API (faster, costs money)
 # Uncomment and set your API key in .env (OPENAI_API_KEY=sk-...)

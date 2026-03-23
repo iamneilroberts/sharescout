@@ -171,6 +171,8 @@ def create_app(config: dict) -> Flask:
             live = cat.get_live_status()
             ollama = _get_ollama_status(config)
             vision_gaps = cat.get_unprocessed_image_stats()
+            embedding_stats = cat.get_embedding_stats()
+            embedding_model = config.get("ollama", {}).get("embedding_model")
             return render_template(
                 "dashboard.html",
                 stats=stats, score_dist=score_dist,
@@ -179,6 +181,7 @@ def create_app(config: dict) -> Flask:
                 project_stats=project_stats, rate=rate,
                 recent_skips=recent_skips, live=live,
                 ollama=ollama, vision_gaps=vision_gaps,
+                embedding_stats=embedding_stats, embedding_model=embedding_model,
             )
         finally:
             cat.close()
@@ -506,6 +509,35 @@ def create_app(config: dict) -> Flask:
             if not os.path.exists(filepath):
                 abort(404, description="Original file not found on disk")
             return send_file(filepath)
+        finally:
+            cat.close()
+
+    # -- Ask AI (RAG) --
+
+    @app.route("/ask", methods=["GET", "POST"])
+    def ask():
+        from ..rag import ask as rag_ask
+        cat = get_catalog()
+        try:
+            has_embeddings = cat.has_embeddings()
+            question = None
+            answer = None
+            sources = []
+
+            if request.method == "POST":
+                question = request.form.get("question", "").strip()
+                if question and has_embeddings:
+                    result = rag_ask(config, cat, question)
+                    answer = result.get("answer", "")
+                    sources = result.get("sources", [])
+
+            return render_template(
+                "ask.html",
+                has_embeddings=has_embeddings,
+                question=question,
+                answer=answer,
+                sources=sources,
+            )
         finally:
             cat.close()
 

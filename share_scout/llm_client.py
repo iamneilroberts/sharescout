@@ -352,6 +352,54 @@ def check_llm(config: dict) -> bool:
     return False
 
 
+def check_embedding_model(config: dict) -> bool:
+    """Check if the configured embedding model is available.
+
+    Returns False if no embedding_model is configured or if the endpoint
+    is unreachable / the model is not found.
+    """
+    ollama_cfg = config.get("ollama", {})
+    embedding_model = ollama_cfg.get("embedding_model")
+    if not embedding_model:
+        return False
+
+    endpoint = ollama_cfg.get("embedding_endpoint") or ollama_cfg.get("endpoint", "http://localhost:11434")
+    try:
+        client = ollama.Client(host=endpoint, timeout=5)
+        models = client.list()
+        model_names = [m["model"] for m in models.get("models", [])]
+        # Match with or without :latest tag
+        return (embedding_model in model_names
+                or f"{embedding_model}:latest" in model_names)
+    except Exception:
+        return False
+
+
+def generate_embedding(config: dict, text: str) -> list[float] | None:
+    """Generate an embedding vector for the given text using Ollama.
+
+    Uses embedding_endpoint if set, otherwise falls back to ollama.endpoint.
+    Returns a list of floats, or None on failure.
+
+    Caller is responsible for ensuring text fits within the model's context window.
+    """
+    ollama_cfg = config.get("ollama", {})
+    embedding_model = ollama_cfg.get("embedding_model")
+    if not embedding_model:
+        logger.warning("No embedding_model configured — cannot generate embedding")
+        return None
+
+    endpoint = ollama_cfg.get("embedding_endpoint") or ollama_cfg.get("endpoint", "http://localhost:11434")
+    timeout = ollama_cfg.get("timeout", 120)
+    try:
+        client = ollama.Client(host=endpoint, timeout=timeout)
+        response = client.embed(model=embedding_model, input=text)
+        return response["embeddings"][0]
+    except Exception as e:
+        logger.warning("Embedding generation failed (%s): %s", embedding_model, e)
+        return None
+
+
 def analyze(file_meta: dict, text_sample: str, config: dict,
             similar_context: list[dict] = None,
             prompt_template: str = None,
