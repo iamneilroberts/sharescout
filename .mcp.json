@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "sharescout": {
+      "command": "/home/neil/dev/kbase/sharescout-mcp.sh"
+    }
+  }
+}
