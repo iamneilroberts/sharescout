@@ -199,9 +199,12 @@ def _analyze_chunked(
             f"File: {file_row.get('filename', '')}\n"
             f"Path: {file_row.get('path', '')}\n\n"
             f"Text:\n---\n{safe_chunk}\n---\n\n"
-            f"Respond in JSON: {{\"summary\": \"...\", \"keywords\": [\"...\"], \"category\": \"...\"}}\n"
+            f'Respond in JSON: {{"summary": "...", "keywords": ["..."], "category": "..."}}\n'
             f"Category (pick one): {chunk_analysis_cats}"
         )
+        # Escape braces so the already-rendered prompt survives the second
+        # .format() call inside analyze_document()
+        chunk_prompt = chunk_prompt.replace("{", "{{").replace("}", "}}")
 
         chunk_result = analyze(
             file_row, chunk_text, config,
@@ -250,6 +253,9 @@ def _analyze_chunked(
         summary_length=summary_length,
         categories=categories,
     )
+    # Escape braces so the already-rendered prompt survives the second
+    # .format() call inside analyze_document()
+    rollup_prompt = rollup_prompt.replace("{", "{{").replace("}", "}}")
 
     result = analyze(
         file_row, rollup_input, config,

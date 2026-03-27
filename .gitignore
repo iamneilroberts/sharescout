@@ -33,6 +33,9 @@ docs/summaries/
 docs/superpowers/
 docs/share_scout_plan.md
 
+# Old code staging
+interchange/
+
 # Logs
 *.log
 
