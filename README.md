@@ -4,7 +4,7 @@
 
 Crawls project directories, scores files by relevance, extracts text, and uses an LLM to summarize and categorize everything into a searchable catalog. Includes full-text search, RAG-powered semantic search, image captioning, a web UI, and an MCP server for AI coding assistant integration.
 
-![ShareScout Dashboard](docs/main_dashboard_with_active_crawl.png)
+![ShareScout Dashboard](docs/UpdatedDashboard.png)
 
 ## Features
 
